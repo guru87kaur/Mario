@@ -1,5 +1,4 @@
 
-
 package com.example.jumphero;
 
 import android.app.Activity;
@@ -9,37 +8,49 @@ import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
 import android.graphics.RectF;
-import android.graphics.Path;
+import android.graphics.Typeface;
 import android.view.MotionEvent;
 import android.view.View;
-import android.media.AudioTrack;
+import android.media.AudioAttributes;
 import android.media.AudioFormat;
+import android.media.AudioTrack;
 import android.media.AudioManager;
 
 import java.util.ArrayList;
 
 public class MainActivity extends Activity {
 
-    GameView game;
+    GameView gameView;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+
         setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE);
-        game = new GameView();
-        setContentView(game);
+
+        gameView = new GameView();
+        setContentView(gameView);
     }
 
     @Override
     protected void onPause() {
         super.onPause();
-        if (game != null) game.stopMusic();
+        if (gameView != null) gameView.stopMusic();
     }
 
     @Override
     protected void onResume() {
         super.onResume();
-        if (game != null && game.musicOn) game.startMusic();
+        if (gameView != null && gameView.musicOn &&
+                !gameView.flagClimbing && !gameView.levelComplete) {
+            gameView.startMusic();
+        }
+    }
+
+    @Override
+    protected void onDestroy() {
+        if (gameView != null) gameView.stopMusic();
+        super.onDestroy();
     }
 
     class GameView extends View {
@@ -48,47 +59,61 @@ public class MainActivity extends Activity {
 
         float sw, sh;
         float groundY;
-        float worldWidth;
+        float worldWidth = 5200f;
         float cameraX = 0;
 
         float heroX = 100;
         float heroY;
-        float heroW = 68;
-        float heroH = 82;
-        float velocityY = 0;
+        float heroW = 65;
+        float heroH = 85;
 
-        float speed = 6;
-        float gravity = 0.85f;
-        float jumpPower = -16;
+        float velocityY = 0;
+        float gravity = 0.75f;
+        float jumpPower = -16f;
+
+        float speed = 6f;
+        float normalSpeed = 6f;
+        float turboSpeed = 11f;
 
         boolean left = false;
         boolean right = false;
+        boolean down = false;
         boolean jump = false;
-        boolean grounded = true;
+        boolean turboMode = false;
 
+        boolean onGround = true;
         boolean flagClimbing = false;
-        int flagFrames = 0;
-        boolean levelWon = false;
+        boolean levelComplete = false;
+        boolean victoryMusicPlayed = false;
+
+        boolean musicOn = true;
+        boolean jumpWasPressed = false;
+        boolean downWasPressed = false;
+
+        long levelCompleteTime = 0;
 
         int level = 1;
         int score = 0;
+        int lives = 3;
 
-        boolean musicOn = true;
-        volatile boolean musicRunning = false;
+        float flagX;
+
+        ArrayList<Float> brickX = new ArrayList<>();
+        ArrayList<Float> brickY = new ArrayList<>();
+        ArrayList<Boolean> brickBroken = new ArrayList<>();
+
+        ArrayList<Float> pipeX = new ArrayList<>();
 
         ArrayList<Float> coinX = new ArrayList<>();
         ArrayList<Float> coinY = new ArrayList<>();
         ArrayList<Boolean> coinTaken = new ArrayList<>();
 
         ArrayList<Float> enemyX = new ArrayList<>();
-        ArrayList<Float> pipeX = new ArrayList<>();
+        ArrayList<Float> enemyY = new ArrayList<>();
+        ArrayList<Boolean> enemyAlive = new ArrayList<>();
 
-        float flagX;
-
-        int skyColor = Color.rgb(100, 190, 255);
-        int groundColor = Color.rgb(70, 180, 55);
-
-        long lastTime = 0;
+        AudioTrack musicTrack;
+        AudioTrack effectTrack;
 
         GameView() {
             super(MainActivity.this);
@@ -96,18 +121,23 @@ public class MainActivity extends Activity {
             setLayerType(View.LAYER_TYPE_SOFTWARE, null);
         }
 
-        @Override
-        protected void onSizeChanged(int w, int h, int oldw, int oldh) {
-            super.onSizeChanged(w, h, oldw, oldh);
-            sw = w;
-            sh = h;
-            groundY = sh * 0.80f;
-            worldWidth = sw * 5.5f;
+        void setupSize(float width, float height) {
+            if (sw == width && sh == height) return;
+
+            sw = width;
+            sh = height;
+
+            groundY = sh - 100;
+            heroY = groundY - heroH;
+
             createLevel();
-            if (musicOn) startMusic();
         }
 
         void createLevel() {
+
+            worldWidth = 5200f + (level - 1) * 450f;
+            flagX = worldWidth - 250;
+
             heroX = 100;
             heroY = groundY - heroH;
             velocityY = 0;
@@ -115,100 +145,65 @@ public class MainActivity extends Activity {
 
             left = false;
             right = false;
+            down = false;
             jump = false;
-            grounded = true;
+            turboMode = false;
 
             flagClimbing = false;
-            flagFrames = 0;
-            levelWon = false;
+            levelComplete = false;
+            victoryMusicPlayed = false;
 
-            worldWidth = sw * 5.5f;
-            flagX = worldWidth - 170;
+            jumpWasPressed = false;
+            downWasPressed = false;
+
+            brickX.clear();
+            brickY.clear();
+            brickBroken.clear();
+
+            pipeX.clear();
 
             coinX.clear();
             coinY.clear();
             coinTaken.clear();
-            enemyX.clear();
-            pipeX.clear();
 
-            for (int i = 0; i < 18; i++) {
-                float x = 380f + i * 230f;
-                coinX.add(x);
-                coinY.add(groundY - 160f - (i % 3) * 30f);
+            enemyX.clear();
+            enemyY.clear();
+            enemyAlive.clear();
+
+            for (int i = 0; i < 35 + level * 2; i++) {
+                float x = 350 + i * 125f;
+                float y = groundY - 210 - (i % 3) * 25f;
+
+                brickX.add(x);
+                brickY.add(y);
+                brickBroken.add(false);
+            }
+
+            for (int i = 0; i < 7; i++) {
+                pipeX.add(700f + i * 650f);
+            }
+
+            for (int i = 0; i < 25; i++) {
+                coinX.add(450f + i * 180f);
+                coinY.add(groundY - 160f - (i % 3) * 55f);
                 coinTaken.add(false);
             }
 
-            for (int i = 0; i < 8; i++) {
-                float x = 700f + i * 500f;
-                enemyX.add(x);
+            for (int i = 0; i < 9; i++) {
+                enemyX.add(900f + i * 480f);
+                enemyY.add(groundY - 42f);
+                enemyAlive.add(true);
             }
 
-            // FIXED: Float values
-            for (int i = 0; i < 8; i++) {
-                pipeX.add(550f + i * 650f);
-            }
-
-            setTheme();
-            invalidate();
-        }
-
-        void setTheme() {
-            switch (level) {
-                case 1:
-                    skyColor = Color.rgb(100, 190, 255);
-                    groundColor = Color.rgb(70, 180, 55);
-                    break;
-                case 2:
-                    skyColor = Color.rgb(255, 190, 100);
-                    groundColor = Color.rgb(220, 170, 75);
-                    break;
-                case 3:
-                    skyColor = Color.rgb(150, 210, 255);
-                    groundColor = Color.rgb(190, 235, 255);
-                    break;
-                case 4:
-                    skyColor = Color.rgb(80, 180, 220);
-                    groundColor = Color.rgb(40, 140, 65);
-                    break;
-                case 5:
-                    skyColor = Color.rgb(30, 130, 220);
-                    groundColor = Color.rgb(20, 100, 180);
-                    break;
-                case 6:
-                    skyColor = Color.rgb(100, 45, 50);
-                    groundColor = Color.rgb(180, 65, 30);
-                    break;
-                case 7:
-                    skyColor = Color.rgb(25, 25, 75);
-                    groundColor = Color.rgb(75, 65, 130);
-                    break;
-                case 8:
-                    skyColor = Color.rgb(255, 170, 210);
-                    groundColor = Color.rgb(210, 100, 170);
-                    break;
-                case 9:
-                    skyColor = Color.rgb(100, 170, 255);
-                    groundColor = Color.rgb(140, 190, 245);
-                    break;
-                case 10:
-                    skyColor = Color.rgb(65, 75, 120);
-                    groundColor = Color.rgb(105, 105, 120);
-                    break;
-            }
+            if (musicOn) startMusic();
         }
 
         @Override
         protected void onDraw(Canvas canvas) {
             super.onDraw(canvas);
-            if (sw == 0 || sh == 0) return;
 
-            long now = System.currentTimeMillis();
-            if (now - lastTime > 15) {
-                updateGame();
-                lastTime = now;
-            }
+            setupSize(getWidth(), getHeight());
 
-            canvas.drawColor(skyColor);
             canvas.save();
             canvas.translate(-cameraX, 0);
 
@@ -223,615 +218,873 @@ public class MainActivity extends Activity {
 
             canvas.restore();
 
-            drawControls(canvas);
             drawInformation(canvas);
+            drawControls(canvas);
 
-            if (levelWon) drawWinMessage(canvas);
+            if (levelComplete) {
+                drawLevelComplete(canvas);
+            }
+
+            if (!levelComplete) {
+                updateGame();
+            }
 
             postInvalidateDelayed(16);
         }
 
         void updateGame() {
-            if (levelWon) return;
 
             if (flagClimbing) {
-                flagFrames++;
-                heroY -= 2.5f;
-                if (flagFrames > 65) levelWon = true;
+                heroY -= 1.8f;
+
+                if (heroY < groundY - heroH - 110) {
+                    heroY = groundY - heroH - 110;
+                    flagClimbing = false;
+                    levelComplete = true;
+                    levelCompleteTime = System.currentTimeMillis();
+                }
                 return;
             }
 
-            if (right) heroX += speed;
-            if (left) heroX -= speed;
-            if (heroX < 0) heroX = 0;
+            speed = turboMode ? turboSpeed : normalSpeed;
 
-            if (jump && grounded) {
-                velocityY = jumpPower;
-                grounded = false;
+            if (right) heroX += speed;
+            if (left) heroX -= normalSpeed;
+
+            if (heroX < 0) heroX = 0;
+            if (heroX > worldWidth - heroW) {
+                heroX = worldWidth - heroW;
             }
 
+            if (jump && !jumpWasPressed && onGround) {
+                velocityY = jumpPower;
+                onGround = false;
+            }
+
+            jumpWasPressed = jump;
+
+            float previousHeroY = heroY;
+
             velocityY += gravity;
+            if (velocityY > 18) velocityY = 18;
+
             heroY += velocityY;
+
+            checkBrickCollision(previousHeroY);
 
             if (heroY + heroH >= groundY) {
                 heroY = groundY - heroH;
                 velocityY = 0;
-                grounded = true;
+                onGround = true;
+            } else {
+                onGround = false;
             }
 
-            // Pipe collision
-            for (float px : pipeX) {
-                if (heroX + heroW > px &&
-                        heroX < px + 90 &&
-                        heroY + heroH > groundY - 90) {
-                    if (heroX + heroW - speed <= px) {
-                        heroX = px - heroW;
+            checkPipeEntry();
+
+            collectCoins();
+            updateEnemies();
+
+            if (heroX > flagX - 100 && !flagClimbing) {
+                reachFlag();
+            }
+
+            float targetCamera = heroX - sw * 0.35f;
+
+            if (targetCamera < 0) targetCamera = 0;
+            if (targetCamera > worldWidth - sw) {
+                targetCamera = worldWidth - sw;
+            }
+
+            cameraX += (targetCamera - cameraX) * 0.12f;
+        }
+
+        void checkBrickCollision(float previousHeroY) {
+
+            if (velocityY >= 0) return;
+
+            for (int i = 0; i < brickX.size(); i++) {
+
+                if (brickBroken.get(i)) continue;
+
+                float bx = brickX.get(i);
+                float by = brickY.get(i);
+
+                boolean horizontal =
+                        heroX + heroW > bx &&
+                        heroX < bx + 44;
+
+                boolean hitFromBelow =
+                        previousHeroY >= by + 40 &&
+                        heroY <= by + 40;
+
+                if (horizontal && hitFromBelow) {
+
+                    brickBroken.set(i, true);
+
+                    heroY = by + 40;
+                    velocityY = 2f;
+
+                    score += 5;
+
+                    playBrickSound();
+                    break;
+                }
+            }
+        }
+
+        void checkPipeEntry() {
+
+            if (!down || downWasPressed) {
+                downWasPressed = down;
+                return;
+            }
+
+            downWasPressed = true;
+
+            if (!onGround) return;
+
+            for (int i = 0; i < pipeX.size(); i++) {
+
+                float px = pipeX.get(i);
+
+                boolean nearPipe =
+                        heroX + heroW > px &&
+                        heroX < px + 90;
+
+                if (nearPipe) {
+
+                    float destination;
+
+                    if (i + 1 < pipeX.size()) {
+                        destination = pipeX.get(i + 1) + 100;
                     } else {
-                        heroX = px + 90;
+                        destination = px + 550;
                     }
+
+                    heroX = Math.min(destination, flagX - 180);
+                    heroY = groundY - heroH;
+                    velocityY = 0;
+
+                    cameraX = Math.max(0, heroX - sw * 0.35f);
+
+                    break;
                 }
             }
+        }
 
-            // Coin collection
+        void collectCoins() {
+
             for (int i = 0; i < coinX.size(); i++) {
-                if (!coinTaken.get(i)) {
-                    float cx = coinX.get(i);
-                    float cy = coinY.get(i);
 
-                    if (heroX + heroW > cx - 18 &&
-                            heroX < cx + 18 &&
-                            heroY < cy + 18 &&
-                            heroY + heroH > cy - 18) {
-                        coinTaken.set(i, true);
-                        score += 10;
-                    }
+                if (coinTaken.get(i)) continue;
+
+                float cx = coinX.get(i);
+                float cy = coinY.get(i);
+
+                if (heroX + heroW > cx &&
+                        heroX < cx + 28 &&
+                        heroY + heroH > cy &&
+                        heroY < cy + 28) {
+
+                    coinTaken.set(i, true);
+                    score += 10;
                 }
             }
+        }
 
-            // Enemy collision
+        void updateEnemies() {
+
             for (int i = 0; i < enemyX.size(); i++) {
-                float ex = enemyX.get(i);
-                if (ex < 0) continue;
 
-                if (Math.abs(heroX - ex) < 45 &&
-                        heroY + heroH > groundY - 55) {
-                    if (velocityY > 2) {
-                        enemyX.set(i, -1000f);
+                if (!enemyAlive.get(i)) continue;
+
+                float ex = enemyX.get(i);
+                float ey = enemyY.get(i);
+
+                if (heroX + heroW > ex &&
+                        heroX < ex + 45 &&
+                        heroY + heroH > ey &&
+                        heroY < ey + 40) {
+
+                    if (velocityY > 1 && heroY + heroH < ey + 25) {
+                        enemyAlive.set(i, false);
                         velocityY = -10;
                         score += 20;
                     } else {
-                        heroX = Math.max(0, heroX - 30);
+                        lives--;
+
+                        heroX = Math.max(0, heroX - 150);
+                        heroY = groundY - heroH;
+                        velocityY = 0;
+
+                        if (lives <= 0) {
+                            lives = 3;
+                            score = Math.max(0, score - 30);
+                            createLevel();
+                        }
                     }
                 }
             }
+        }
 
-            // Reach finish flag
-            if (heroX > flagX - 110) {
-                flagClimbing = true;
-                flagFrames = 0;
-                heroX = flagX - heroW + 10;
-                right = false;
-                left = false;
-                jump = false;
+        void reachFlag() {
+
+            flagClimbing = true;
+            heroX = flagX - heroW + 10;
+
+            right = false;
+            left = false;
+            jump = false;
+            down = false;
+            turboMode = false;
+
+            if (!victoryMusicPlayed) {
+                victoryMusicPlayed = true;
+                stopMusic();
+
+                if (musicOn) {
+                    playVictorySound();
+                }
             }
-
-            cameraX = heroX - sw * 0.35f;
-            if (cameraX < 0) cameraX = 0;
-
-            float maxCamera = worldWidth - sw;
-            if (cameraX > maxCamera) cameraX = maxCamera;
         }
 
         void drawBackground(Canvas c) {
-            // Sun or moon
-            p.setColor(level == 7 ? Color.YELLOW : Color.rgb(255, 235, 90));
-            c.drawCircle(cameraX + sw * 0.82f, 85, 38, p);
 
-            // Clouds
-            for (int i = -2; i < 30; i++) {
-                float x = i * 330f + 100f;
-                drawCloud(c, x, 70 + (i % 3) * 45);
+            int sky;
+
+            switch ((level - 1) % 10) {
+                case 1: sky = Color.rgb(245, 190, 100); break;
+                case 2: sky = Color.rgb(190, 225, 250); break;
+                case 3: sky = Color.rgb(120, 200, 170); break;
+                case 4: sky = Color.rgb(70, 160, 210); break;
+                case 5: sky = Color.rgb(255, 150, 90); break;
+                case 6: sky = Color.rgb(35, 40, 90); break;
+                case 7: sky = Color.rgb(230, 160, 220); break;
+                case 8: sky = Color.rgb(100, 170, 230); break;
+                case 9: sky = Color.rgb(170, 190, 250); break;
+                default: sky = Color.rgb(100, 190, 245); break;
             }
 
-            // Distant hills
-            for (int i = -2; i < 30; i++) {
-                float x = i * 360f;
-                p.setColor(level == 7 ?
-                        Color.rgb(45, 45, 100) :
-                        Color.rgb(90, 175, 100));
-                c.drawOval(x, groundY - 160,
-                        x + 430, groundY + 40, p);
+            c.drawColor(sky);
+
+            p.setColor(Color.YELLOW);
+            c.drawCircle(cameraX + sw - 100, 90, 42, p);
+
+            for (int i = 0; i < 15; i++) {
+
+                float x = i * 430f;
+
+                p.setColor(Color.WHITE);
+                c.drawOval(x + 30, 80, x + 130, 120, p);
+                c.drawOval(x + 75, 55, x + 160, 115, p);
+                c.drawOval(x + 120, 80, x + 205, 120, p);
             }
 
-            // Trees and level scenery across the whole world
-            for (int i = 0; i < 35; i++) {
-                float x = 150 + i * 300f;
+            for (int i = 0; i < 30; i++) {
 
-                if (level == 2) drawCactus(c, x, groundY);
-                else if (level == 3) drawSnowTree(c, x, groundY);
-                else if (level == 5) drawCoral(c, x, groundY);
-                else if (level == 6) drawFire(c, x, groundY);
-                else if (level == 8) drawCandyTree(c, x, groundY);
-                else drawTree(c, x, groundY);
-            }
+                float x = i * 190f;
 
-            if (level == 10) {
-                for (int i = 0; i < 4; i++) {
-                    drawCastle(c, 900 + i * 700f, groundY);
+                if (level % 3 == 1) {
+                    p.setColor(Color.rgb(70, 170, 75));
+                    c.drawCircle(x, groundY - 40, 90, p);
+                    c.drawCircle(x + 90, groundY - 30, 70, p);
+                } else if (level % 3 == 2) {
+                    p.setColor(Color.rgb(190, 150, 85));
+                    c.drawRect(x, groundY - 100, x + 45, groundY, p);
+                    c.drawCircle(x + 20, groundY - 110, 48, p);
+                } else {
+                    p.setColor(Color.rgb(40, 130, 80));
+                    c.drawRect(x + 25, groundY - 125, x + 45, groundY, p);
+                    c.drawCircle(x + 35, groundY - 140, 65, p);
                 }
             }
 
-            if (level == 9) {
-                for (int i = 0; i < 20; i++) {
-                    float x = 250 + i * 300f;
+            drawThemeDetails(c);
+        }
+
+        void drawThemeDetails(Canvas c) {
+
+            for (int i = 0; i < 18; i++) {
+
+                float x = 180 + i * 300f;
+
+                if (level == 2) {
+                    p.setColor(Color.rgb(30, 160, 50));
+                    c.drawRect(x, groundY - 120, x + 20, groundY, p);
+                    c.drawCircle(x + 10, groundY - 130, 35, p);
+                }
+
+                if (level == 3) {
                     p.setColor(Color.WHITE);
-                    c.drawOval(x, groundY - 260,
-                            x + 180, groundY - 215, p);
+                    c.drawCircle(x, groundY - 100, 35, p);
+                    c.drawCircle(x + 25, groundY - 120, 35, p);
+                }
+
+                if (level == 4) {
+                    p.setColor(Color.CYAN);
+                    c.drawCircle(x, groundY - 80, 20, p);
+                    c.drawCircle(x + 30, groundY - 110, 20, p);
+                }
+
+                if (level == 5) {
+                    p.setColor(Color.RED);
+                    c.drawCircle(x, groundY - 90, 25, p);
+                    p.setColor(Color.YELLOW);
+                    c.drawCircle(x + 30, groundY - 120, 20, p);
+                }
+
+                if (level == 6) {
+                    p.setColor(Color.YELLOW);
+                    c.drawCircle(x, groundY - 130, 4, p);
+                    c.drawCircle(x + 35, groundY - 160, 4, p);
+                }
+
+                if (level >= 7) {
+                    p.setColor(Color.MAGENTA);
+                    c.drawCircle(x, groundY - 90, 24, p);
+                    p.setColor(Color.WHITE);
+                    c.drawCircle(x + 20, groundY - 115, 15, p);
                 }
             }
-        }
-
-        void drawCloud(Canvas c, float x, float y) {
-            p.setColor(Color.WHITE);
-            c.drawCircle(x, y, 22, p);
-            c.drawCircle(x + 28, y - 12, 27, p);
-            c.drawCircle(x + 58, y, 22, p);
-            c.drawRect(x, y, x + 58, y + 18, p);
-        }
-
-        void drawTree(Canvas c, float x, float base) {
-            p.setColor(Color.rgb(110, 65, 30));
-            c.drawRect(x, base - 110, x + 22, base, p);
-            p.setColor(Color.rgb(20, 130, 35));
-            c.drawCircle(x + 10, base - 130, 43, p);
-            c.drawCircle(x - 18, base - 105, 30, p);
-            c.drawCircle(x + 40, base - 105, 30, p);
-        }
-
-        void drawCactus(Canvas c, float x, float base) {
-            p.setColor(Color.rgb(35, 145, 50));
-            c.drawRoundRect(x, base - 110, x + 28, base, 12, 12, p);
-            c.drawRoundRect(x - 25, base - 75, x, base - 55, 10, 10, p);
-            c.drawRoundRect(x - 25, base - 85, x - 8, base - 45, 8, 8, p);
-            c.drawRoundRect(x + 28, base - 90, x + 50, base - 70, 10, 10, p);
-        }
-
-        void drawSnowTree(Canvas c, float x, float base) {
-            p.setColor(Color.rgb(100, 65, 35));
-            c.drawRect(x, base - 100, x + 18, base, p);
-            p.setColor(Color.WHITE);
-
-            for (int i = 0; i < 3; i++) {
-                float y = base - 110 - i * 35;
-                Path path = new Path();
-                path.moveTo(x - 35, y + 35);
-                path.lineTo(x + 9, y - 30);
-                path.lineTo(x + 53, y + 35);
-                path.close();
-                c.drawPath(path, p);
-            }
-        }
-
-        void drawCoral(Canvas c, float x, float base) {
-            p.setColor(Color.rgb(255, 110, 130));
-            c.drawRoundRect(x, base - 100, x + 20, base, 10, 10, p);
-            c.drawCircle(x + 10, base - 105, 25, p);
-            p.setColor(Color.YELLOW);
-            c.drawCircle(x + 45, base - 60, 13, p);
-        }
-
-        void drawFire(Canvas c, float x, float base) {
-            p.setColor(Color.rgb(255, 100, 20));
-            c.drawOval(x, base - 70, x + 45, base, p);
-            p.setColor(Color.YELLOW);
-            c.drawOval(x + 12, base - 50, x + 32, base, p);
-        }
-
-        void drawCandyTree(Canvas c, float x, float base) {
-            p.setColor(Color.rgb(120, 75, 35));
-            c.drawRect(x, base - 100, x + 16, base, p);
-            p.setColor(Color.MAGENTA);
-            c.drawCircle(x + 8, base - 120, 38, p);
-            p.setColor(Color.WHITE);
-            c.drawCircle(x - 5, base - 130, 9, p);
-            c.drawCircle(x + 20, base - 110, 9, p);
-        }
-
-        void drawCastle(Canvas c, float x, float base) {
-            p.setColor(Color.rgb(150, 150, 170));
-            c.drawRect(x, base - 180, x + 210, base, p);
-            c.drawRect(x - 30, base - 220, x + 40, base, p);
-            c.drawRect(x + 170, base - 220, x + 240, base, p);
-            p.setColor(Color.rgb(90, 90, 120));
-            c.drawRect(x + 75, base - 90, x + 135, base, p);
-            p.setColor(Color.RED);
-            c.drawRect(x + 10, base - 250, x + 55, base - 220, p);
-            c.drawRect(x + 190, base - 250, x + 235, base - 220, p);
         }
 
         void drawGround(Canvas c) {
-            p.setColor(groundColor);
-            c.drawRect(0, groundY, worldWidth, sh, p);
-            p.setColor(Color.rgb(80, 45, 25));
-            c.drawRect(0, groundY + 24, worldWidth, sh, p);
-            p.setColor(Color.rgb(40, 130, 35));
-            c.drawRect(0, groundY, worldWidth, groundY + 12, p);
 
-            for (int i = 0; i < 100; i++) {
-                float x = i * 110f;
-                p.setColor(Color.rgb(110, 75, 35));
-                c.drawRect(x, groundY + 40, x + 60, groundY + 45, p);
+            p.setColor(Color.rgb(115, 70, 35));
+            c.drawRect(0, groundY, worldWidth, sh, p);
+
+            p.setColor(Color.rgb(50, 180, 55));
+            c.drawRect(0, groundY, worldWidth, groundY + 18, p);
+
+            p.setColor(Color.rgb(80, 55, 30));
+
+            for (int i = 0; i < worldWidth / 80; i++) {
+                float x = i * 80f;
+                c.drawRect(x, groundY + 35, x + 45, groundY + 42, p);
             }
         }
 
         void drawBricks(Canvas c) {
-            // Brick rows
-            for (int i = 0; i < 40; i++) {
-                float x = 300 + i * 140f;
-                float y = groundY - 210 - (i % 3) * 25f;
-                drawBrick(c, x, y);
+
+            for (int i = 0; i < brickX.size(); i++) {
+
+                if (brickBroken.get(i)) continue;
+
+                drawBrick(c, brickX.get(i), brickY.get(i));
             }
 
-            // Question blocks
             for (int i = 0; i < 12; i++) {
-                float x = 450 + i * 380f;
-                float y = groundY - 300;
-                drawQuestionBlock(c, x, y);
-            }
 
-            // Floating brick platforms
-            for (int i = 0; i < 8; i++) {
-                float x = 800 + i * 580f;
-                float y = groundY - 135;
-                for (int j = 0; j < 4; j++) {
-                    drawBrick(c, x + j * 45f, y);
-                }
+                float x = 500 + i * 350f;
+                float y = groundY - 300 - (i % 2) * 35;
+
+                p.setColor(Color.rgb(180, 80, 30));
+                c.drawRect(x, y, x + 45, y + 40, p);
+
+                p.setColor(Color.YELLOW);
+                c.drawRect(x + 8, y + 8, x + 37, y + 33, p);
+
+                p.setColor(Color.rgb(110, 55, 20));
+                p.setStyle(Paint.Style.STROKE);
+                p.setStrokeWidth(3);
+                c.drawRect(x, y, x + 45, y + 40, p);
+                p.setStyle(Paint.Style.FILL);
             }
         }
 
         void drawBrick(Canvas c, float x, float y) {
-            p.setColor(Color.rgb(175, 75, 30));
+
+            p.setColor(Color.rgb(175, 75, 25));
             c.drawRect(x, y, x + 44, y + 40, p);
-            p.setColor(Color.rgb(245, 150, 65));
-            c.drawRect(x + 3, y + 3, x + 41, y + 18, p);
-            p.setColor(Color.rgb(80, 35, 20));
+
+            p.setColor(Color.rgb(240, 145, 70));
             p.setStyle(Paint.Style.STROKE);
             p.setStrokeWidth(3);
             c.drawRect(x, y, x + 44, y + 40, p);
-            c.drawLine(x + 22, y, x + 22, y + 40, p);
             c.drawLine(x, y + 20, x + 44, y + 20, p);
+            c.drawLine(x + 22, y, x + 22, y + 20, p);
             p.setStyle(Paint.Style.FILL);
-        }
-
-        void drawQuestionBlock(Canvas c, float x, float y) {
-            p.setColor(Color.rgb(255, 190, 30));
-            c.drawRoundRect(x, y, x + 48, y + 48, 5, 5, p);
-            p.setColor(Color.rgb(150, 75, 10));
-            p.setStyle(Paint.Style.STROKE);
-            p.setStrokeWidth(4);
-            c.drawRect(x, y, x + 48, y + 48, p);
-            p.setStyle(Paint.Style.FILL);
-            p.setColor(Color.WHITE);
-            p.setTextSize(34);
-            p.setFakeBoldText(true);
-            c.drawText("?", x + 12, y + 36, p);
-            p.setFakeBoldText(false);
         }
 
         void drawPipes(Canvas c) {
+
             for (float x : pipeX) {
-                p.setColor(Color.rgb(0, 135, 30));
-                c.drawRect(x, groundY - 95, x + 90, groundY, p);
-                p.setColor(Color.rgb(30, 220, 50));
-                c.drawRect(x + 10, groundY - 85, x + 30, groundY - 5, p);
-                p.setColor(Color.rgb(0, 100, 20));
-                c.drawRect(x - 8, groundY - 110, x + 98, groundY - 88, p);
-                p.setColor(Color.rgb(50, 240, 60));
-                c.drawRect(x, groundY - 110, x + 15, groundY - 90, p);
+
+                p.setColor(Color.rgb(0, 120, 20));
+                c.drawRect(x, groundY - 95, x + 80, groundY, p);
+
+                p.setColor(Color.rgb(0, 190, 40));
+                c.drawRect(x - 10, groundY - 105, x + 90, groundY - 85, p);
+
+                p.setColor(Color.rgb(0, 75, 15));
+                p.setStyle(Paint.Style.STROKE);
+                p.setStrokeWidth(4);
+                c.drawRect(x, groundY - 95, x + 80, groundY, p);
+                p.setStyle(Paint.Style.FILL);
             }
         }
 
         void drawCoins(Canvas c) {
-            for (int i = 0; i < coinX.size(); i++) {
-                if (coinTaken.get(i)) continue;
-                float x = coinX.get(i);
-                float y = coinY.get(i);
 
-                p.setColor(Color.rgb(255, 205, 0));
-                c.drawCircle(x, y, 17, p);
-                p.setColor(Color.rgb(255, 245, 100));
-                c.drawCircle(x, y, 11, p);
-                p.setColor(Color.rgb(180, 115, 0));
-                p.setTextSize(19);
-                c.drawText("$", x - 6, y + 7, p);
+            for (int i = 0; i < coinX.size(); i++) {
+
+                if (coinTaken.get(i)) continue;
+
+                p.setColor(Color.YELLOW);
+                c.drawOval(
+                        coinX.get(i), coinY.get(i),
+                        coinX.get(i) + 27, coinY.get(i) + 32, p
+                );
+
+                p.setColor(Color.rgb(220, 140, 0));
+                p.setStyle(Paint.Style.STROKE);
+                p.setStrokeWidth(3);
+                c.drawOval(
+                        coinX.get(i), coinY.get(i),
+                        coinX.get(i) + 27, coinY.get(i) + 32, p
+                );
+                p.setStyle(Paint.Style.FILL);
             }
         }
 
         void drawEnemies(Canvas c) {
-            for (float x : enemyX) {
-                if (x < 0) continue;
-                p.setColor(Color.rgb(140, 50, 30));
-                c.drawOval(x, groundY - 48, x + 48, groundY, p);
+
+            for (int i = 0; i < enemyX.size(); i++) {
+
+                if (!enemyAlive.get(i)) continue;
+
+                float x = enemyX.get(i);
+                float y = enemyY.get(i);
+
+                p.setColor(Color.rgb(130, 70, 35));
+                c.drawOval(x, y, x + 45, y + 40, p);
+
                 p.setColor(Color.WHITE);
-                c.drawCircle(x + 14, groundY - 30, 7, p);
-                c.drawCircle(x + 33, groundY - 30, 7, p);
+                c.drawCircle(x + 13, y + 14, 7, p);
+                c.drawCircle(x + 32, y + 14, 7, p);
+
                 p.setColor(Color.BLACK);
-                c.drawCircle(x + 16, groundY - 30, 3, p);
-                c.drawCircle(x + 35, groundY - 30, 3, p);
+                c.drawCircle(x + 15, y + 15, 3, p);
+                c.drawCircle(x + 33, y + 15, 3, p);
+
+                p.setColor(Color.BLACK);
+                c.drawRect(x + 5, y + 35, x + 18, y + 42, p);
+                c.drawRect(x + 28, y + 35, x + 41, y + 42, p);
             }
         }
 
         void drawFlag(Canvas c) {
+
             p.setColor(Color.DKGRAY);
-            c.drawRect(flagX, groundY - 270, flagX + 10, groundY, p);
+            c.drawRect(flagX, groundY - 290, flagX + 9, groundY, p);
+
             p.setColor(Color.YELLOW);
-            c.drawCircle(flagX + 5, groundY - 275, 12, p);
-            p.setColor(Color.rgb(30, 200, 50));
-            c.drawRect(flagX + 10, groundY - 265,
-                    flagX + 110, groundY - 205, p);
+            c.drawCircle(flagX + 4, groundY - 295, 12, p);
+
+            p.setColor(Color.RED);
+
+            Path flag = new Path();
+            flag.moveTo(flagX + 9, groundY - 285);
+            flag.lineTo(flagX + 115, groundY - 250);
+            flag.lineTo(flagX + 9, groundY - 215);
+            flag.close();
+
+            c.drawPath(flag, p);
+
             p.setColor(Color.WHITE);
-            p.setTextSize(28);
-            c.drawText("GO!", flagX + 28, groundY - 225, p);
+            p.setTextSize(25);
+            c.drawText("FINISH", flagX + 20, groundY - 248, p);
         }
 
         void drawDoraemon(Canvas c) {
+
             float x = heroX;
             float y = heroY;
 
-            // Feet
-            p.setColor(Color.WHITE);
-            c.drawOval(x + 5, y + 68, x + 32, y + 83, p);
-            c.drawOval(x + 38, y + 68, x + 65, y + 83, p);
-
-            // Blue body
-            p.setColor(Color.rgb(0, 115, 220));
-            c.drawOval(x + 3, y + 12, x + 64, y + 78, p);
-
-            // Belly
-            p.setColor(Color.WHITE);
-            c.drawOval(x + 15, y + 42, x + 55, y + 75, p);
-
-            // Head
-            p.setColor(Color.rgb(0, 145, 235));
-            c.drawOval(x, y, x + 68, y + 65, p);
+            // Body
+            p.setColor(Color.rgb(0, 145, 225));
+            c.drawOval(x + 5, y + 35, x + 63, y + 85, p);
 
             // Face
-            p.setColor(Color.WHITE);
-            c.drawOval(x + 12, y + 12, x + 61, y + 59, p);
+            p.setColor(Color.rgb(0, 150, 235));
+            c.drawCircle(x + 34, y + 27, 34, p);
 
-            // Eyes facing right
+            // White face
             p.setColor(Color.WHITE);
-            c.drawOval(x + 36, y + 7, x + 51, y + 30, p);
-            c.drawOval(x + 51, y + 9, x + 63, y + 29, p);
+            c.drawOval(x + 8, y + 13, x + 61, y + 58, p);
+
+            // Eyes
+            p.setColor(Color.WHITE);
+            c.drawOval(x + 31, y + 1, x + 45, y + 23, p);
+            c.drawOval(x + 44, y + 1, x + 58, y + 23, p);
+
             p.setColor(Color.BLACK);
-            c.drawCircle(x + 46, y + 20, 3, p);
-            c.drawCircle(x + 58, y + 20, 3, p);
+            c.drawCircle(x + 40, y + 13, 3, p);
+            c.drawCircle(x + 52, y + 13, 3, p);
 
             // Nose
             p.setColor(Color.RED);
-            c.drawCircle(x + 56, y + 34, 7, p);
-            p.setColor(Color.WHITE);
-            c.drawCircle(x + 58, y + 31, 2, p);
+            c.drawCircle(x + 56, y + 27, 7, p);
 
-            // Mouth
+            // Nose line
             p.setColor(Color.BLACK);
             p.setStrokeWidth(2);
-            c.drawLine(x + 40, y + 43, x + 61, y + 43, p);
+            c.drawLine(x + 55, y + 34, x + 55, y + 45, p);
 
             // Whiskers
             p.setStrokeWidth(2);
-            c.drawLine(x + 13, y + 32, x + 34, y + 36, p);
-            c.drawLine(x + 12, y + 40, x + 33, y + 40, p);
-            c.drawLine(x + 14, y + 48, x + 34, y + 44, p);
-            c.drawLine(x + 58, y + 36, x + 68, y + 31, p);
-            c.drawLine(x + 58, y + 42, x + 69, y + 42, p);
-            c.drawLine(x + 57, y + 47, x + 68, y + 52, p);
+            c.drawLine(x + 12, y + 27, x + 32, y + 30, p);
+            c.drawLine(x + 10, y + 37, x + 32, y + 37, p);
+            c.drawLine(x + 12, y + 46, x + 32, y + 42, p);
 
-            // Collar and bell
+            // Mouth
+            c.drawArc(x + 23, y + 31, x + 57, y + 57,
+                    15, 150, false, p);
+
+            // Collar
             p.setColor(Color.RED);
-            c.drawRect(x + 16, y + 62, x + 56, y + 68, p);
+            c.drawRect(x + 8, y + 55, x + 61, y + 63, p);
+
+            // Bell
             p.setColor(Color.YELLOW);
-            c.drawCircle(x + 37, y + 69, 7, p);
-            p.setColor(Color.BLACK);
-            c.drawCircle(x + 37, y + 69, 2, p);
-        }
+            c.drawCircle(x + 36, y + 65, 8, p);
 
-        void drawControls(Canvas c) {
-            drawButton(c, 80, sh - 85, "◀");
-            drawButton(c, 220, sh - 85, "▶");
-            drawButton(c, sw - 95, sh - 85, "JUMP");
-        }
+            p.setColor(Color.rgb(150, 100, 0));
+            c.drawCircle(x + 36, y + 65, 3, p);
 
-        void drawButton(Canvas c, float x, float y, String text) {
-            p.setColor(Color.argb(155, 20, 20, 20));
-            c.drawCircle(x, y, 64, p);
+            // Feet
             p.setColor(Color.WHITE);
-            p.setStyle(Paint.Style.STROKE);
-            p.setStrokeWidth(5);
-            c.drawCircle(x, y, 64, p);
-            p.setStyle(Paint.Style.FILL);
-            p.setTextAlign(Paint.Align.CENTER);
-            p.setTextSize(text.equals("JUMP") ? 20 : 42);
-            p.setFakeBoldText(true);
-            c.drawText(text, x, y + 12, p);
-            p.setFakeBoldText(false);
-            p.setTextAlign(Paint.Align.LEFT);
+            c.drawOval(x + 3, y + 76, x + 32, y + 88, p);
+            c.drawOval(x + 35, y + 76, x + 66, y + 88, p);
+
+            // Pocket
+            p.setColor(Color.WHITE);
+            c.drawOval(x + 20, y + 68, x + 51, y + 84, p);
         }
 
         void drawInformation(Canvas c) {
-            p.setColor(Color.argb(180, 0, 0, 0));
-            c.drawRoundRect(15, 12, 390, 65, 15, 15, p);
-            p.setColor(Color.WHITE);
-            p.setTextSize(24);
-            p.setFakeBoldText(true);
-            c.drawText("LEVEL " + level + "/10", 30, 46, p);
-            c.drawText("SCORE: " + score, 175, 46, p);
-            p.setFakeBoldText(false);
 
-            p.setColor(Color.argb(190, 0, 0, 0));
-            c.drawCircle(sw - 45, 40, 28, p);
-            p.setColor(Color.WHITE);
-            p.setTextSize(18);
-            c.drawText(musicOn ? "♪" : "X", sw - 53, 47, p);
+            p.setColor(Color.BLACK);
+            p.setTextSize(24);
+            p.setTypeface(Typeface.DEFAULT_BOLD);
+
+            c.drawText("LEVEL " + level + "/10", 20, 35, p);
+            c.drawText("SCORE " + score, 190, 35, p);
+            c.drawText("LIVES " + lives, 370, 35, p);
+
+            p.setColor(musicOn ? Color.GREEN : Color.RED);
+            c.drawCircle(sw - 35, 35, 15, p);
+
+            p.setColor(Color.BLACK);
+            p.setTextSize(16);
+            c.drawText("MUSIC", sw - 100, 70, p);
+
+            if (turboMode) {
+                p.setColor(Color.RED);
+                p.setTextSize(26);
+                c.drawText("TURBO!", sw / 2 - 50, 50, p);
+            }
         }
 
-        void drawWinMessage(Canvas c) {
-            p.setColor(Color.argb(210, 0, 0, 0));
-            c.drawRoundRect(sw / 2 - 190, sh / 2 - 75,
-                    sw / 2 + 190, sh / 2 + 75, 20, 20, p);
-            p.setColor(Color.YELLOW);
-            p.setTextAlign(Paint.Align.CENTER);
-            p.setTextSize(32);
-            p.setFakeBoldText(true);
+        void drawControls(Canvas c) {
 
-            if (level == 10) {
-                c.drawText("YOU WIN!", sw / 2, sh / 2 - 5, p);
-                p.setTextSize(19);
-                c.drawText("Tap to play again", sw / 2, sh / 2 + 35, p);
-            } else {
-                c.drawText("LEVEL COMPLETED!", sw / 2, sh / 2 - 5, p);
-                p.setTextSize(19);
-                c.drawText("Tap for next level", sw / 2, sh / 2 + 35, p);
+            float y = sh - 75;
+            float r = 48;
+
+            drawButton(c, 75, y, r, "LEFT");
+            drawButton(c, sw * 0.22f, y, r, "RUN");
+            drawButton(c, sw * 0.40f, y, r, "DOWN");
+            drawButton(c, sw - 85, y, r, "JUMP");
+
+            if (turboMode) {
+                p.setColor(Color.YELLOW);
+                p.setTextSize(18);
+                c.drawText("FAST", sw * 0.22f - 22, y - 55, p);
             }
+        }
 
-            p.setFakeBoldText(false);
-            p.setTextAlign(Paint.Align.LEFT);
+        void drawButton(Canvas c, float x, float y,
+                        float radius, String label) {
+
+            p.setColor(Color.argb(180, 20, 30, 40));
+            c.drawCircle(x, y, radius, p);
+
+            p.setColor(Color.WHITE);
+            p.setStyle(Paint.Style.STROKE);
+            p.setStrokeWidth(4);
+            c.drawCircle(x, y, radius, p);
+            p.setStyle(Paint.Style.FILL);
+
+            p.setTextSize(15);
+            p.setTypeface(Typeface.DEFAULT_BOLD);
+
+            float textWidth = p.measureText(label);
+            c.drawText(label, x - textWidth / 2, y + 5, p);
+        }
+
+        void drawLevelComplete(Canvas c) {
+
+            p.setColor(Color.argb(210, 0, 0, 0));
+            c.drawRoundRect(
+                    new RectF(sw / 2 - 190, sh / 2 - 100,
+                            sw / 2 + 190, sh / 2 + 100),
+                    25, 25, p
+            );
+
+            p.setColor(Color.YELLOW);
+            p.setTextSize(34);
+            p.setTypeface(Typeface.DEFAULT_BOLD);
+            c.drawText("LEVEL COMPLETE!",
+                    sw / 2 - 155, sh / 2 - 30, p);
+
+            p.setColor(Color.WHITE);
+            p.setTextSize(23);
+
+            if (level >= 10) {
+                c.drawText("YOU WIN!", sw / 2 - 65, sh / 2 + 15, p);
+            } else {
+                c.drawText("Tap to play next level",
+                        sw / 2 - 125, sh / 2 + 15, p);
+            }
         }
 
         @Override
         public boolean onTouchEvent(MotionEvent event) {
+
             int action = event.getActionMasked();
 
-            if (levelWon && action == MotionEvent.ACTION_DOWN) {
-                if (level < 10) {
-                    level++;
-                } else {
-                    level = 1;
-                    score = 0;
-                }
-                createLevel();
-                return true;
-            }
+            if (levelComplete) {
 
-            if (action == MotionEvent.ACTION_DOWN) {
-                float tx = event.getX();
-                float ty = event.getY();
+                if (action == MotionEvent.ACTION_DOWN) {
 
-                if (tx > sw - 85 && ty < 85) {
-                    musicOn = !musicOn;
-                    if (musicOn) startMusic();
-                    else stopMusic();
+                    if (level < 10) {
+                        level++;
+                        createLevel();
+                    } else {
+                        level = 1;
+                        score = 0;
+                        lives = 3;
+                        createLevel();
+                    }
+
                     return true;
                 }
-            }
 
-            if (action == MotionEvent.ACTION_CANCEL) {
-                left = false;
-                right = false;
-                jump = false;
                 return true;
             }
 
-            if (action == MotionEvent.ACTION_DOWN ||
-                    action == MotionEvent.ACTION_POINTER_DOWN ||
-                    action == MotionEvent.ACTION_MOVE ||
-                    action == MotionEvent.ACTION_POINTER_UP ||
-                    action == MotionEvent.ACTION_UP) {
-                updateTouchControls(event);
+            if (action == MotionEvent.ACTION_UP ||
+                    action == MotionEvent.ACTION_CANCEL) {
+
+                left = false;
+                right = false;
+                down = false;
+                jump = false;
+                turboMode = false;
+
+                return true;
+            }
+
+            left = false;
+            right = false;
+            down = false;
+            jump = false;
+            turboMode = false;
+
+            for (int i = 0; i < event.getPointerCount(); i++) {
+
+                if (action == MotionEvent.ACTION_POINTER_UP &&
+                        i == event.getActionIndex()) {
+                    continue;
+                }
+
+                float x = event.getX(i);
+                float y = event.getY(i);
+
+                // Music toggle
+                if (action == MotionEvent.ACTION_DOWN &&
+                        x > sw - 75 && y < 85) {
+
+                    musicOn = !musicOn;
+
+                    if (musicOn && !flagClimbing && !levelComplete) {
+                        startMusic();
+                    } else {
+                        stopMusic();
+                    }
+
+                    return true;
+                }
+
+                if (y > sh - 160) {
+
+                    if (x < 150) {
+                        left = true;
+                    } else if (x < sw * 0.32f) {
+
+                        right = true;
+
+                        if (event.getEventTime() -
+                                event.getDownTime() > 350) {
+                            turboMode = true;
+                        }
+
+                    } else if (x < sw * 0.52f) {
+                        down = true;
+                    } else if (x > sw * 0.75f) {
+                        jump = true;
+                    }
+                }
             }
 
             return true;
         }
 
-        void updateTouchControls(MotionEvent event) {
-            left = false;
-            right = false;
-            jump = false;
+        void startMusic() {
 
-            if (event.getActionMasked() == MotionEvent.ACTION_UP) return;
+            if (!musicOn || flagClimbing || levelComplete) return;
 
-            for (int i = 0; i < event.getPointerCount(); i++) {
-                if (event.getActionMasked() == MotionEvent.ACTION_POINTER_UP &&
-                        i == event.getActionIndex()) continue;
+            stopMusic();
 
-                float x = event.getX(i);
-                float y = event.getY(i);
+            try {
+                int sampleRate = 22050;
+                int length = sampleRate * 3;
 
-                if (y > sh - 175) {
-                    if (x < 155) {
-                        left = true;
-                    } else if (x < 300) {
-                        right = true;
-                    } else if (x > sw - 185) {
-                        jump = true;
-                    }
+                short[] samples = new short[length];
+
+                double[] notes = {
+                        523.25, 659.25, 783.99, 659.25,
+                        587.33, 698.46, 880.00, 698.46
+                };
+
+                int noteLength = length / notes.length;
+
+                for (int i = 0; i < length; i++) {
+
+                    int n = (i / noteLength) % notes.length;
+                    double frequency = notes[n];
+
+                    double wave = Math.sin(
+                            2 * Math.PI * frequency * i / sampleRate
+                    );
+
+                    samples[i] = (short)(wave * 3000);
                 }
+
+                musicTrack = new AudioTrack(
+                        AudioManager.STREAM_MUSIC,
+                        sampleRate,
+                        AudioFormat.CHANNEL_OUT_MONO,
+                        AudioFormat.ENCODING_PCM_16BIT,
+                        length * 2,
+                        AudioTrack.MODE_STATIC
+                );
+
+                musicTrack.write(samples, 0, length);
+                musicTrack.setLoopPoints(0, length - 1, -1);
+                musicTrack.play();
+
+            } catch (Exception e) {
+                stopMusic();
             }
         }
 
-        void startMusic() {
-            if (musicRunning || !musicOn) return;
+        synchronized void stopMusic() {
 
-            musicRunning = true;
+            if (musicTrack != null) {
+
+                try {
+                    musicTrack.stop();
+                } catch (Exception ignored) {}
+
+                try {
+                    musicTrack.release();
+                } catch (Exception ignored) {}
+
+                musicTrack = null;
+            }
+        }
+
+        void playBrickSound() {
+
+            playEffect(new double[]{
+                    180, 130, 90
+            }, 350);
+        }
+
+        void playVictorySound() {
+
+            playEffect(new double[]{
+                    523, 659, 784, 1047, 784, 1047
+            }, 450);
+        }
+
+        void playEffect(double[] notes, int noteDurationMs) {
 
             new Thread(() -> {
-                int sampleRate = 22050;
-                int bufferSize = 1024;
+
                 AudioTrack track = null;
 
                 try {
+
+                    int sampleRate = 22050;
+                    int noteSamples =
+                            sampleRate * noteDurationMs / 1000;
+
+                    int length = noteSamples * notes.length;
+
+                    short[] samples = new short[length];
+
+                    for (int n = 0; n < notes.length; n++) {
+
+                        for (int j = 0; j < noteSamples; j++) {
+
+                            int index = n * noteSamples + j;
+
+                            double fade =
+                                    1.0 - ((double) j / noteSamples);
+
+                            double wave = Math.sin(
+                                    2 * Math.PI * notes[n] *
+                                            index / sampleRate
+                            );
+
+                            samples[index] = (short)(
+                                    wave * 6500 * fade
+                            );
+                        }
+                    }
+
                     track = new AudioTrack(
                             AudioManager.STREAM_MUSIC,
                             sampleRate,
                             AudioFormat.CHANNEL_OUT_MONO,
                             AudioFormat.ENCODING_PCM_16BIT,
-                            bufferSize,
-                            AudioTrack.MODE_STREAM
+                            length * 2,
+                            AudioTrack.MODE_STATIC
                     );
 
+                    track.write(samples, 0, length);
                     track.play();
-                    short[] buffer = new short[bufferSize];
-                    double phase = 0;
-                    int note = 0;
 
-                    double[] melody = {
-                            523.25, 659.25, 783.99, 659.25,
-                            587.33, 698.46, 880.00, 698.46,
-                            523.25, 587.33, 659.25, 783.99
-                    };
+                    Thread.sleep(
+                            noteDurationMs * notes.length + 150
+                    );
 
-                    while (musicRunning) {
-                        double frequency = melody[note];
+                } catch (Exception ignored) {
 
-                        for (int i = 0; i < bufferSize; i++) {
-                            buffer[i] = (short)(Math.sin(phase) * 2500);
-                            phase += 2 * Math.PI * frequency / sampleRate;
-                            if (phase > 2 * Math.PI) {
-                                phase -= 2 * Math.PI;
-                            }
-                        }
-
-                        track.write(buffer, 0, buffer.length);
-                        note = (note + 1) % melody.length;
-                    }
-
-                } catch (Exception e) {
-                    // Game continues if audio is unavailable.
                 } finally {
+
                     if (track != null) {
                         try {
-                            track.stop();
                             track.release();
-                        } catch (Exception ignored) {
-                        }
+                        } catch (Exception ignored) {}
                     }
-                    musicRunning = false;
                 }
-            }).start();
-        }
 
-        void stopMusic() {
-            musicRunning = false;
+            }).start();
         }
     }
 }
+
