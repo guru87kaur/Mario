@@ -1,4 +1,3 @@
-
 package com.example.jumphero;
 
 import android.app.Activity;
@@ -143,21 +142,45 @@ public class MainActivity extends Activity {
         void buildLevel() {
             platforms.clear(); pipes.clear(); coins.clear(); enemies.clear();
             floorY = 0;
-            worldW = 3000 + level * 260;
-            // Raised brick platforms, with gaps and pipes in the ground.
-            for (int i=0; i<12 + level; i++) {
-                float px = 360 + i * 205;
-                float py = 390 - (i % 3) * 65;
-                platforms.add(new RectF(px, py, px + 130, py + 28));
-                if (i % 2 == 0) coins.add(new RectF(px + 45, py - 58, px + 70, py - 33));
+            worldW = 3300 + level * 190;
+
+            // Every level gets a different obstacle rhythm and platform shape.
+            for (int i=0; i<10 + level; i++) {
+                float px, py, width;
+                switch (level % 5) {
+                    case 1: // Classic: floating brick steps
+                        px = 340 + i * 225; py = 395 - (i % 3) * 58; width = 125;
+                        break;
+                    case 2: // High jumps: narrow, tall platforms
+                        px = 310 + i * 238; py = 365 - (i % 4) * 48; width = 92;
+                        break;
+                    case 3: // Long platforms and low tunnels
+                        px = 390 + i * 215; py = 415 - (i % 2) * 82; width = 165;
+                        break;
+                    case 4: // Zig-zag staircase
+                        px = 330 + i * 220; py = 445 - (i % 4) * 66; width = 112;
+                        break;
+                    default: // Sky challenge
+                        px = 360 + i * 230; py = 350 - (i % 3) * 75; width = 105;
+                        break;
+                }
+                platforms.add(new RectF(px, py, px + width, py + 26));
+                if ((i + level) % 2 == 0)
+                    coins.add(new RectF(px + width/2 - 12, py - 55, px + width/2 + 12, py - 31));
             }
-            for (int i=0; i<5 + level/2; i++) {
-                float px = 650 + i * 470;
-                pipes.add(new RectF(px, 505 - (i%3)*16, px+78, 600));
+
+            // Pipe count, spacing and height change from level to level.
+            int pipeCount = 3 + level % 5;
+            for (int i=0; i<pipeCount; i++) {
+                float px = 600 + i * (390 + (level % 3) * 45);
+                float height = 65 + ((i + level) % 3) * 22;
+                pipes.add(new RectF(px, 510-height, px+72, 600));
             }
-            for (int i=0; i<5 + level; i++) {
-                float ex = 520 + i * 390;
-                enemies.add(new Enemy(ex, 0, ex-90, ex+90));
+
+            // Enemy patrol areas are different on every level.
+            for (int i=0; i<4 + level; i++) {
+                float ex = 480 + i * (310 + (level % 4) * 28);
+                enemies.add(new Enemy(ex, 0, ex-65-(level*3), ex+75+(level*4)));
             }
             x = 70; y = 0; vx = 0; vy = 0; camera = 0;
             won = false; gameOver = false;
@@ -255,12 +278,54 @@ public class MainActivity extends Activity {
         }
 
         void drawWorld(Canvas c) {
-            c.drawColor(0xFF75C9F4);
-            // Distant hills.
-            p.setColor(0xFF8EDB83);
+            // Different visual theme for each of the ten stages.
+            int[] skies = {0xFF75C9F4, 0xFFFFC56E, 0xFF25345F, 0xFFB8E6F5, 0xFFFF9B70,
+                           0xFF6C9CE8, 0xFFB4D8A0, 0xFF252B4A, 0xFFFFD98B, 0xFF9AD9D2};
+            int[] hills = {0xFF8EDB83, 0xFFC58A43, 0xFF4A5B91, 0xFFECF8FF, 0xFFB84F42,
+                           0xFF4767A8, 0xFF4C9B62, 0xFF55506F, 0xFFDAA64B, 0xFF397F83};
+            int[] soils = {0xFF92552D, 0xFFB97835, 0xFF343B55, 0xFF9AA8B0, 0xFF71382E,
+                           0xFF55442F, 0xFF6A4930, 0xFF292638, 0xFF8B5A2B, 0xFF315B54};
+            int theme = (level-1) % 10;
+            c.drawColor(skies[theme]);
+
+            // Theme-specific sky details: sun/moon and stars.
+            p.setStyle(Paint.Style.FILL);
+            if (theme == 2 || theme == 7) {
+                p.setColor(0xFFFFF2B0);
+                c.drawCircle(735, 105, 35, p);
+                p.setColor(0xFFFFFFFF);
+                for (int i=0; i<22; i++) {
+                    float sx = (i*137 + 35) % 880;
+                    float sy = 35 + (i*47)%230;
+                    c.drawCircle(sx, sy, 2.5f, p);
+                }
+            } else {
+                p.setColor(0xFFFFE17A);
+                c.drawCircle(760, 105, 42, p);
+                p.setColor(0xFFFFFFFF);
+                for (int i=0; i<4; i++) {
+                    float cx = 110 + i*230 - (camera*0.12f)%920;
+                    c.drawOval(cx, 95+(i%2)*45, cx+85, 125+(i%2)*45, p);
+                }
+            }
+
+            // Distant landscape uses a different silhouette for each theme.
+            p.setColor(hills[theme]);
             for (int i=0; i<8; i++) {
                 float hx = i*260 - (camera*0.25f)%260;
-                c.drawOval(hx, 360, hx+190, 530, p);
+                if (theme == 1 || theme == 4 || theme == 8) {
+                    c.drawRect(hx+55, 410, hx+105, 510, p);
+                    c.drawOval(hx+15, 365, hx+145, 450, p);
+                } else if (theme == 3) {
+                    Path peak = new Path();
+                    peak.moveTo(hx, 510); peak.lineTo(hx+95, 330+(i%3)*25);
+                    peak.lineTo(hx+190, 510); peak.close(); c.drawPath(peak,p);
+                    p.setColor(Color.WHITE);
+                    c.drawCircle(hx+95, 355+(i%3)*25, 15, p);
+                    p.setColor(hills[theme]);
+                } else {
+                    c.drawOval(hx, 360, hx+190, 530, p);
+                }
             }
             c.save();
             c.translate(-camera, 0);
@@ -272,9 +337,11 @@ public class MainActivity extends Activity {
             }
 
             // Ground.
-            p.setColor(0xFF36A83B);
+            int[] grass = {0xFF36A83B,0xFFB9A04A,0xFF4D5D79,0xFFE9F5F8,0xFF8E4939,
+                           0xFF567B39,0xFF2D8B48,0xFF3C344F,0xFFB58A36,0xFF28756B};
+            p.setColor(grass[theme]);
             c.drawRect(0,510,worldW,600,p);
-            p.setColor(0xFF92552D);
+            p.setColor(soils[theme]);
             c.drawRect(0,530,worldW,600,p);
             if (groundBitmap != null) {
                 for (int gx=0; gx<worldW; gx+=64)
@@ -367,3 +434,4 @@ public class MainActivity extends Activity {
         }
     }
 }
+
