@@ -519,7 +519,7 @@ public class MainActivity extends Activity {
                 c.drawCircle(centerX, baseY-trunkH-28*scale, 30*scale, p);
                 c.drawCircle(centerX-22*scale, baseY-trunkH-12*scale, 23*scale, p);
                 c.drawCircle(centerX+22*scale, baseY-trunkH-12*scale, 23*scale, p);
-                p.setColor(0x553FFFFFF);
+                p.setColor(0x55FFFFFF);
                 c.drawCircle(centerX-10*scale, baseY-trunkH-34*scale, 9*scale, p);
             }
         }
