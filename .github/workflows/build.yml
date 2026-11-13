@@ -1,4 +1,5 @@
 
+
 name: Build Jump Hero APK
 
 on:
@@ -15,21 +16,16 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Extract game ZIP
-        run: |
-          unzip -q JumpHero_Android_Project.zip -d extracted
-          cp -a extracted/JumpHero/. .
-
       - name: Set up Java
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
 
-      - name: Check Android SDK
+      - name: Install Android SDK
         run: |
-          echo "ANDROID_HOME=$ANDROID_HOME"
-          ls "$ANDROID_HOME/platforms"
+          yes | sdkmanager --licenses || true
+          sdkmanager "platforms;android-35" "build-tools;35.0.0"
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
@@ -44,5 +40,6 @@ jobs:
         with:
           name: Jump-Hero-APK
           path: app/build/outputs/apk/debug/app-debug.apk
+
 
 
