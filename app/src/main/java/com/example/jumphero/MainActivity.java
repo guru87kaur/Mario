@@ -3,256 +3,406 @@ package com.example.jumphero;
 
 import android.app.Activity;
 import android.os.Bundle;
-import android.view.View;
-import android.view.MotionEvent;
+import android.os.Handler;
 import android.graphics.Canvas;
 import android.graphics.Paint;
 import android.graphics.Color;
-import android.graphics.RectF;
-import android.content.Context;
+import android.view.View;
+import android.view.MotionEvent;
+import android.view.WindowManager;
+import android.media.AudioManager;
+import android.media.ToneGenerator;
 
 public class MainActivity extends Activity {
+
+    GameView game;
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        getWindow().getDecorView().setSystemUiVisibility(
-            View.SYSTEM_UI_FLAG_FULLSCREEN |
-            View.SYSTEM_UI_FLAG_HIDE_NAVIGATION |
-            View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+
+        getWindow().setFlags(
+            WindowManager.LayoutParams.FLAG_FULLSCREEN,
+            WindowManager.LayoutParams.FLAG_FULLSCREEN
         );
-        setContentView(new GameView(this));
+
+        game = new GameView();
+        setContentView(game);
+    }
+
+    @Override
+    protected void onPause() {
+        super.onPause();
+        if (game != null) game.pauseGame();
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        if (game != null) game.resumeGame();
+    }
+
+    @Override
+    protected void onDestroy() {
+        if (game != null) game.releaseAudio();
+        super.onDestroy();
     }
 
     class GameView extends View {
+
         Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
-        float playerX = 100, playerY = 300;
-        float velocityY = 0;
-        float camera = 0;
+        Handler handler = new Handler();
+
+        ToneGenerator audio =
+            new ToneGenerator(AudioManager.STREAM_MUSIC, 70);
+
+        float x = 100;
+        float y = 200;
+        float vy = 0;
+
+        float ground;
+        float coinX = 500;
+        float coinY = 300;
+
         int score = 0;
         int lives = 3;
-        boolean left = false, right = false;
-        boolean jump = false;
-        boolean grounded = false;
-        boolean won = false;
 
-        final float ground = 390;
-        final float playerSize = 42;
+        boolean left = false;
+        boolean right = false;
+        boolean jumping = false;
+        boolean running = true;
+        boolean music = true;
+        boolean gameOver = false;
 
-        float[] platforms = {
-            0,390,650, 760,340,180, 1030,300,180,
-            1320,360,180, 1630,310,220,
-            1990,390,700
+        long frame = 0;
+        int note = 0;
+
+        int[] melody = {
+            ToneGenerator.TONE_DTMF_1,
+            ToneGenerator.TONE_DTMF_3,
+            ToneGenerator.TONE_DTMF_5,
+            ToneGenerator.TONE_DTMF_8,
+            ToneGenerator.TONE_DTMF_5,
+            ToneGenerator.TONE_DTMF_3
         };
-
-        float[] coins = {
-            400,330, 820,280, 1100,240,
-            1400,300, 1710,250, 2050,330
-        };
-        boolean[] collected = new boolean[6];
-
-        GameView(Context c) {
-            super(c);
-            setFocusable(true);
-        }
-
-        void drawRect(Canvas c, int color, float x, float y,
-                      float w, float h) {
-            p.setColor(color);
-            c.drawRect(x, y, x+w, y+h, p);
-        }
-
-        @Override
-        protected void onDraw(Canvas canvas) {
-            super.onDraw(canvas);
-            int w = getWidth(), h = getHeight();
-
-            canvas.save();
-            canvas.scale(w/900f, h/500f);
-
-            drawRect(canvas, Color.rgb(120,205,255),0,0,900,500);
-
-            // Clouds
-            p.setColor(Color.WHITE);
-            for(int i=0;i<7;i++) {
-                float x = (i*180-camera*0.25f)%1100;
-                canvas.drawCircle(x,75,24,p);
-                canvas.drawCircle(x+25,65,30,p);
-                canvas.drawCircle(x+52,78,22,p);
-            }
-
-            // Ground and platforms
-            for(int i=0;i<platforms.length;i+=3) {
-                float x=platforms[i]-camera;
-                float y=platforms[i+1];
-                float width=platforms[i+2];
-                drawRect(canvas,Color.rgb(130,75,35),x,y,width,500-y);
-                drawRect(canvas,Color.rgb(50,180,70),x,y,width,12);
-            }
-
-            // Coins
-            for(int i=0;i<6;i++) {
-                if(!collected[i]) {
-                    p.setColor(Color.YELLOW);
-                    canvas.drawCircle(coins[i*2]-camera,
-                        coins[i*2+1],13,p);
-                    p.setColor(Color.rgb(220,150,0));
-                    canvas.drawCircle(coins[i*2]-camera,
-                        coins[i*2+1],6,p);
-                }
-            }
-
-            // Finish flag
-            drawRect(canvas,Color.DKGRAY,2600-camera,245,7,145);
-            p.setColor(Color.RED);
-            PathFlag(canvas,2607-camera,245);
-
-            // Player
-            drawRect(canvas,Color.rgb(220,45,45),
-                playerX-camera,playerY,playerSize,playerSize);
-            p.setColor(Color.WHITE);
-            canvas.drawCircle(playerX-camera+29,playerY+12,5,p);
-            p.setColor(Color.BLACK);
-            canvas.drawCircle(playerX-camera+30,playerY+12,2,p);
-
-            // Score
-            p.setColor(Color.BLACK);
-            p.setTextSize(27);
-            canvas.drawText("Coins: "+score,25,35,p);
-            canvas.drawText("Lives: "+lives,25,68,p);
-
-            // Touch controls
-            p.setColor(Color.argb(130,30,30,30));
-            canvas.drawCircle(75,425, forty(),p);
-            canvas.drawCircle(180,425, forty(),p);
-            canvas.drawCircle(810,425, fifty(),p);
-            p.setColor(Color.WHITE);
-            p.setTextSize(30);
-            canvas.drawText("<",63,435,p);
-            canvas.drawText(">",168,435,p);
-            canvas.drawText("JUMP",770,435,p);
-
-            if(won || lives<=0) {
-                p.setColor(Color.BLACK);
-                p.setTextSize(45);
-                canvas.drawText(won ? "YOU WIN!" : "GAME OVER",
-                    300,220,p);
-                p.setTextSize(22);
-                canvas.drawText("Tap to play again",350,260,p);
-            }
-
-            canvas.restore();
-        }
-
-        float forty() { return 42; }
-        float fifty() { return 55; }
-
-        void PathFlag(Canvas c,float x,float y) {
-            PathTriangle(c,x,y);
-        }
-
-        void PathTriangle(Canvas c,float x,float y) {
-            android.graphics.Path path = new android.graphics.Path();
-            path.moveTo(x,y);
-            path.lineTo(x+65,y+20);
-            path.lineTo(x,y+42);
-            path.close();
-            p.setColor(Color.RED);
-            c.drawPath(path,p);
-        }
-
-        void reset() {
-            playerX=100; playerY=300;
-            velocityY=0; camera=0;
-            score=0; lives=3;
-            won=false; grounded=false;
-            for(int i=0;i<6;i++) collected[i]=false;
-        }
-
-        @Override
-        public boolean onTouchEvent(MotionEvent e) {
-            float x=e.getX()*900f/getWidth();
-            float y=e.getY()*500f/getHeight();
-
-            if(won || lives<=0) {
-                if(e.getAction()==MotionEvent.ACTION_DOWN) reset();
-                return true;
-            }
-
-            if(e.getAction()==MotionEvent.ACTION_DOWN ||
-               e.getAction()==MotionEvent.ACTION_MOVE) {
-                left=x<125 && y>350;
-                right=x>=125 && x<250 && y>350;
-                if(x>700 && y>350 && grounded) {
-                    velocityY=-15;
-                    grounded=false;
-                }
-            } else if(e.getAction()==MotionEvent.ACTION_UP ||
-                      e.getAction()==MotionEvent.ACTION_CANCEL) {
-                left=false; right=false;
-            }
-            return true;
-        }
-
-        @Override
-        protected void onAttachedToWindow() {
-            super.onAttachedToWindow();
-            post(gameLoop);
-        }
 
         Runnable gameLoop = new Runnable() {
             @Override
             public void run() {
+                if (!running) return;
+
                 updateGame();
                 invalidate();
-                postDelayed(this,16);
+
+                handler.postDelayed(this, 16);
             }
         };
 
+        Runnable musicLoop = new Runnable() {
+            @Override
+            public void run() {
+                if (!running) return;
+
+                if (music && !gameOver) {
+                    audio.startTone(melody[note], 160);
+                    note = (note + 1) % melody.length;
+                }
+
+                handler.postDelayed(this, 300);
+            }
+        };
+
+        GameView() {
+            super(MainActivity.this);
+            setFocusable(true);
+
+            handler.post(gameLoop);
+            handler.postDelayed(musicLoop, 300);
+        }
+
+        void pauseGame() {
+            running = false;
+            handler.removeCallbacks(gameLoop);
+            handler.removeCallbacks(musicLoop);
+            audio.stopTone();
+        }
+
+        void resumeGame() {
+            if (running) return;
+
+            running = true;
+            handler.post(gameLoop);
+            handler.post(musicLoop);
+        }
+
+        void releaseAudio() {
+            running = false;
+            handler.removeCallbacksAndMessages(null);
+            audio.stopTone();
+            audio.release();
+        }
+
         void updateGame() {
-            if(won || lives<=0) return;
+            float w = getWidth();
+            float h = getHeight();
 
-            if(left) playerX-=5;
-            if(right) playerX+=5;
-            if(playerX<0) playerX=0;
+            if (w == 0 || h == 0 || gameOver) return;
 
-            float oldY=playerY;
-            velocityY+=0.7f;
-            playerY+=velocityY;
-            grounded=false;
+            ground = h * 0.78f;
 
-            for(int i=0;i<platforms.length;i+=3) {
-                float x=platforms[i];
-                float y=platforms[i+1];
-                float width=platforms[i+2];
-                if(playerX+playerSize>x &&
-                   playerX<x+width &&
-                   oldY+playerSize<=y &&
-                   playerY+playerSize>=y &&
-                   velocityY>=0) {
-                    playerY=y-playerSize;
-                    velocityY=0;
-                    grounded=true;
-                }
+            if (left) x -= 5;
+            if (right) x += 5;
+
+            x = Math.max(0, Math.min(w - 55, x));
+
+            vy += 0.65f;
+            y += vy;
+
+            if (y + 55 >= ground) {
+                y = ground - 55;
+                vy = 0;
+                jumping = false;
             }
 
-            for(int i=0;i<6;i++) {
-                if(!collected[i] &&
-                   Math.abs(playerX+20-coins[i*2])<30 &&
-                   Math.abs(playerY+20-coins[i*2+1])<30) {
-                    collected[i]=true;
-                    score++;
-                }
+            // Coin collection
+            if (Math.abs(x - coinX) < 45 &&
+                Math.abs(y - coinY) < 55) {
+
+                score++;
+                audio.startTone(
+                    ToneGenerator.TONE_PROP_ACK, 150);
+
+                coinX = 100 + (float)Math.random() * (w - 200);
+                coinY = ground - 100 -
+                    (float)Math.random() * 150;
             }
 
-            if(playerY>550) {
+            // Falling protection
+            if (y > h + 100) {
                 lives--;
-                playerX=Math.max(100,playerX-120);
-                playerY=200;
-                velocityY=0;
+                x = 100;
+                y = ground - 55;
+                vy = 0;
+
+                if (lives <= 0) {
+                    gameOver = true;
+                    audio.startTone(
+                        ToneGenerator.TONE_PROP_NACK, 500);
+                }
             }
 
-            camera=Math.max(0,playerX-350);
-            if(playerX>2580) won=true;
+            frame++;
+        }
+
+        void drawHero(Canvas c) {
+            float a = x;
+            float b = y;
+
+            // Shoes
+            p.setColor(Color.rgb(80, 35, 20));
+            c.drawRect(a + 3, b + 47, a + 25, b + 55, p);
+            c.drawRect(a + 30, b + 47, a + 52, b + 55, p);
+
+            // Blue overalls
+            p.setColor(Color.BLUE);
+            c.drawRect(a + 9, b + 27, a + 46, b + 49, p);
+
+            // Red shirt
+            p.setColor(Color.RED);
+            c.drawRect(a + 5, b + 18, a + 50, b + 34, p);
+
+            // Arms
+            p.setColor(Color.rgb(255, 190, 140));
+            c.drawRect(a, b + 20, a + 9, b + 36, p);
+            c.drawRect(a + 46, b + 20, a + 55, b + 36, p);
+
+            // Face
+            p.setColor(Color.rgb(255, 200, 150));
+            c.drawRoundRect(a + 11, b + 3,
+                a + 44, b + 28, 7, 7, p);
+
+            // Hair
+            p.setColor(Color.rgb(90, 40, 15));
+            c.drawRect(a + 8, b + 8, a + 14, b + 24, p);
+
+            // Red cap
+            p.setColor(Color.RED);
+            c.drawRect(a + 7, b - 5, a + 45, b + 7, p);
+            c.drawRect(a + 1, b + 3, a + 48, b + 10, p);
+
+            // Eyes
+            p.setColor(Color.WHITE);
+            c.drawCircle(a + 35, b + 15, 4, p);
+
+            p.setColor(Color.BLACK);
+            c.drawCircle(a + 36, b + 15, 2, p);
+
+            // Mustache
+            p.setColor(Color.rgb(70, 30, 10));
+            c.drawRect(a + 23, b + 20, a + 40, b + 24, p);
+
+            // Overall buttons
+            p.setColor(Color.YELLOW);
+            c.drawCircle(a + 19, b + 31, 3, p);
+            c.drawCircle(a + 37, b + 31, 3, p);
+        }
+
+        void drawButton(Canvas c, float cx, float cy,
+                        String label) {
+            p.setColor(Color.argb(160, 30, 30, 30));
+            c.drawCircle(cx, cy, 42, p);
+
+            p.setColor(Color.WHITE);
+            p.setTextSize(25);
+            p.setTextAlign(Paint.Align.CENTER);
+            c.drawText(label, cx, cy + 9, p);
+            p.setTextAlign(Paint.Align.LEFT);
+        }
+
+        @Override
+        protected void onDraw(Canvas c) {
+            super.onDraw(c);
+
+            float w = getWidth();
+            float h = getHeight();
+
+            ground = h * 0.78f;
+
+            // Sky
+            c.drawColor(Color.rgb(100, 190, 250));
+
+            // Sun
+            p.setColor(Color.YELLOW);
+            c.drawCircle(w - 75, 80, 38, p);
+
+            // Clouds
+            p.setColor(Color.WHITE);
+
+            for (int i = 0; i < 5; i++) {
+                float cx = (i * 240 + 100 - frame / 4) % (w + 100);
+                if (cx < 0) cx += w + 100;
+
+                c.drawCircle(cx, 110, 27, p);
+                c.drawCircle(cx + 30, 95, 30, p);
+                c.drawCircle(cx + 60, 110, 25, p);
+            }
+
+            // Hills
+            p.setColor(Color.rgb(60, 175, 85));
+
+            for (int i = 0; i < 5; i++) {
+                float hx = i * 260;
+                c.drawCircle(hx, ground + 5, 100, p);
+            }
+
+            // Ground
+            p.setColor(Color.rgb(120, 70, 35));
+            c.drawRect(0, ground, w, h, p);
+
+            p.setColor(Color.GREEN);
+            c.drawRect(0, ground, w, ground + 15, p);
+
+            // Coins
+            p.setColor(Color.YELLOW);
+            c.drawCircle(coinX, coinY, 19, p);
+
+            p.setColor(Color.rgb(220, 140, 0));
+            c.drawCircle(coinX, coinY, 10, p);
+
+            // Character
+            drawHero(c);
+
+            // Score
+            p.setColor(Color.WHITE);
+            p.setTextSize(30);
+            c.drawText("COINS: " + score, 25, 40, p);
+            c.drawText("LIVES: " + lives, 25, 78, p);
+
+            // Controls
+            drawButton(c, w * 0.12f, h * 0.88f, "<");
+            drawButton(c, w * 0.29f, h * 0.88f, ">");
+            drawButton(c, w * 0.88f, h * 0.88f, "J");
+
+            // Music toggle
+            p.setColor(Color.WHITE);
+            p.setTextSize(20);
+            c.drawText(music ? "MUSIC ON" : "MUSIC OFF",
+                w - 130, 35, p);
+
+            if (gameOver) {
+                p.setColor(Color.argb(200, 0, 0, 0));
+                c.drawRect(0, 0, w, h, p);
+
+                p.setColor(Color.WHITE);
+                p.setTextSize(45);
+                c.drawText("GAME OVER", w / 2 - 130, h / 2, p);
+
+                p.setTextSize(25);
+                c.drawText("Tap to restart",
+                    w / 2 - 85, h / 2 + 50, p);
+            }
+        }
+
+        @Override
+        public boolean onTouchEvent(MotionEvent event) {
+            float tx = event.getX();
+            float ty = event.getY();
+
+            float w = getWidth();
+            float h = getHeight();
+
+            if (event.getAction() == MotionEvent.ACTION_DOWN) {
+
+                if (gameOver) {
+                    score = 0;
+                    lives = 3;
+                    x = 100;
+                    y = ground - 55;
+                    vy = 0;
+                    gameOver = false;
+                    return true;
+                }
+
+                if (ty < 65 && tx > w - 155) {
+                    music = !music;
+                    return true;
+                }
+
+                if (tx < w * 0.20f) {
+                    left = true;
+                } else if (tx < w * 0.40f) {
+                    right = true;
+                } else if (tx > w * 0.72f) {
+                    if (!jumping) {
+                        vy = -15;
+                        jumping = true;
+                        audio.startTone(
+                            ToneGenerator.TONE_CDMA_ALERT_CALL_GUARD,
+                            120);
+                    }
+                }
+
+                return true;
+            }
+
+            if (event.getAction() == MotionEvent.ACTION_UP ||
+                event.getAction() == MotionEvent.ACTION_CANCEL) {
+                left = false;
+                right = false;
+                return true;
+            }
+
+            if (event.getAction() == MotionEvent.ACTION_MOVE) {
+                left = tx < w * 0.20f;
+                right = tx >= w * 0.20f && tx < w * 0.40f;
+                return true;
+            }
+
+            return true;
         }
     }
 }
+
+
+
+            
