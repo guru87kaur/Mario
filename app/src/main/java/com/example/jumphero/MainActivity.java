@@ -1,3 +1,4 @@
+
 package com.example.jumphero;
 
 import android.app.Activity;
@@ -87,6 +88,8 @@ public class MainActivity extends Activity {
     static class GameView extends View {
         Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
         ArrayList<RectF> platforms = new ArrayList<>();
+        ArrayList<Boolean> platformBreakable = new ArrayList<>();
+        ArrayList<BrickPiece> brickPieces = new ArrayList<>();
         ArrayList<RectF> pipes = new ArrayList<>();
         ArrayList<RectF> coins = new ArrayList<>();
         ArrayList<Enemy> enemies = new ArrayList<>();
@@ -104,6 +107,13 @@ public class MainActivity extends Activity {
             boolean alive = true;
             Enemy(float x, float y, float min, float max) {
                 this.x=x; this.y=y; this.min=min; this.max=max;
+            }
+        }
+
+        static class BrickPiece {
+            float x, y, vx, vy, size, rotation;
+            BrickPiece(float x, float y, float vx, float vy) {
+                this.x=x; this.y=y; this.vx=vx; this.vy=vy; size=13;
             }
         }
 
@@ -140,7 +150,8 @@ public class MainActivity extends Activity {
         }
 
         void buildLevel() {
-            platforms.clear(); pipes.clear(); coins.clear(); enemies.clear();
+            platforms.clear(); platformBreakable.clear(); brickPieces.clear();
+            pipes.clear(); coins.clear(); enemies.clear();
             floorY = 0;
             worldW = 3300 + level * 190;
 
@@ -165,6 +176,7 @@ public class MainActivity extends Activity {
                         break;
                 }
                 platforms.add(new RectF(px, py, px + width, py + 26));
+                platformBreakable.add((i % 3 != 0));
                 if ((i + level) % 2 == 0)
                     coins.add(new RectF(px + width/2 - 12, py - 55, px + width/2 + 12, py - 31));
             }
@@ -230,12 +242,26 @@ public class MainActivity extends Activity {
             if (y + heroH >= ground && oldY + heroH <= ground + 12) {
                 y = ground-heroH; vy=0; onGround=true;
             }
-            for (RectF r : platforms) {
-                if (x+heroW > r.left && x < r.right &&
-                    oldY+heroH <= r.top+8 && y+heroH >= r.top && vy >= 0) {
+            for (int i=platforms.size()-1; i>=0; i--) {
+                RectF r = platforms.get(i);
+                boolean horizontalHit = x+heroW-7 > r.left && x+7 < r.right;
+                // Land on top of a platform.
+                if (horizontalHit && oldY+heroH <= r.top+8 &&
+                    y+heroH >= r.top && vy >= 0) {
                     y = r.top-heroH; vy=0; onGround=true;
                 }
+                // Hit the underside while moving upward: break breakable bricks.
+                else if (horizontalHit && vy < 0 && oldY >= r.bottom-5 &&
+                         y <= r.bottom && platformBreakable.get(i)) {
+                    makeBrickPieces(r);
+                    platforms.remove(i);
+                    platformBreakable.remove(i);
+                    score += 5;
+                    y = r.bottom;
+                    vy = 1.5f;
+                }
             }
+            updateBrickPieces(dt);
             // Pipes act as solid obstacles; jump over them.
             for (RectF r : pipes) {
                 RectF player = new RectF(x+8,y+8,x+heroW-8,y+heroH);
@@ -277,6 +303,25 @@ public class MainActivity extends Activity {
             }
         }
 
+        void makeBrickPieces(RectF r) {
+            float mid = r.centerX();
+            brickPieces.add(new BrickPiece(mid-12, r.centerY(), -3.2f, -6.5f));
+            brickPieces.add(new BrickPiece(mid+2, r.centerY(), 3.0f, -7.2f));
+            brickPieces.add(new BrickPiece(mid-12, r.centerY()-9, -2.5f, -3.5f));
+            brickPieces.add(new BrickPiece(mid+2, r.centerY()-9, 2.8f, -4.2f));
+        }
+
+        void updateBrickPieces(float dt) {
+            for (int i=brickPieces.size()-1; i>=0; i--) {
+                BrickPiece b = brickPieces.get(i);
+                b.x += b.vx*dt;
+                b.y += b.vy*dt;
+                b.vy += 0.55f*dt;
+                b.rotation += 8*dt;
+                if (b.y > 620) brickPieces.remove(i);
+            }
+        }
+
         void drawWorld(Canvas c) {
             // Different visual theme for each of the ten stages.
             int[] skies = {0xFF75C9F4, 0xFFFFC56E, 0xFF25345F, 0xFFB8E6F5, 0xFFFF9B70,
@@ -309,22 +354,24 @@ public class MainActivity extends Activity {
                 }
             }
 
-            // Distant landscape uses a different silhouette for each theme.
-            p.setColor(hills[theme]);
-            for (int i=0; i<8; i++) {
-                float hx = i*260 - (camera*0.25f)%260;
+            // Detailed distant mountains and trees, drawn behind the playable world.
+            for (int i=0; i<7; i++) {
+                float mx = i*185 - (camera*0.18f)%185 - 40;
+                drawMountain(c, mx, 500, 95 + (i%3)*22, 265 + (i%2)*38,
+                        hills[theme], theme == 3 || theme == 5 || theme == 7);
+            }
+            for (int i=0; i<10; i++) {
+                float tx = i*112 - (camera*0.32f)%112 - 20;
+                float base = 510;
                 if (theme == 1 || theme == 4 || theme == 8) {
-                    c.drawRect(hx+55, 410, hx+105, 510, p);
-                    c.drawOval(hx+15, 365, hx+145, 450, p);
-                } else if (theme == 3) {
-                    Path peak = new Path();
-                    peak.moveTo(hx, 510); peak.lineTo(hx+95, 330+(i%3)*25);
-                    peak.lineTo(hx+190, 510); peak.close(); c.drawPath(peak,p);
-                    p.setColor(Color.WHITE);
-                    c.drawCircle(hx+95, 355+(i%3)*25, 15, p);
-                    p.setColor(hills[theme]);
+                    drawTree(c, tx, base, 0.78f + (i%3)*0.12f, 0xFF79502D,
+                            0xFF3D8C43, true);
+                } else if (theme == 2 || theme == 7) {
+                    drawTree(c, tx, base, 0.72f + (i%3)*0.10f, 0xFF3B354A,
+                            0xFF343D68, true);
                 } else {
-                    c.drawOval(hx, 360, hx+190, 530, p);
+                    drawTree(c, tx, base, 0.82f + (i%3)*0.12f, 0xFF76502E,
+                            theme == 3 ? 0xFFB9D9E8 : 0xFF237B3C, false);
                 }
             }
             c.save();
@@ -349,6 +396,18 @@ public class MainActivity extends Activity {
             }
             // Brick platforms.
             for (RectF r : platforms) drawTile(c,r,brickBitmap,0xFFB7652B);
+            // Animated fragments from broken bricks.
+            for (BrickPiece b : brickPieces) {
+                c.save();
+                c.rotate(b.rotation, b.x+7, b.y+7);
+                p.setColor(0xFFB7652B);
+                c.drawRect(b.x, b.y, b.x+14, b.y+14, p);
+                p.setColor(0xFFFFC078);
+                p.setStyle(Paint.Style.STROKE); p.setStrokeWidth(2);
+                c.drawRect(b.x, b.y, b.x+14, b.y+14, p);
+                p.setStyle(Paint.Style.FILL);
+                c.restore();
+            }
             // Pipes.
             for (RectF r : pipes) {
                 if (pipeBitmap != null) c.drawBitmap(pipeBitmap,null,r,p);
@@ -402,6 +461,69 @@ public class MainActivity extends Activity {
             }
         }
 
+        void drawMountain(Canvas c, float centerX, float baseY, float halfWidth,
+                          float height, int mountainColor, boolean snowy) {
+            Path mountain = new Path();
+            mountain.moveTo(centerX-halfWidth, baseY);
+            mountain.lineTo(centerX, baseY-height);
+            mountain.lineTo(centerX+halfWidth, baseY);
+            mountain.close();
+            p.setColor(mountainColor);
+            c.drawPath(mountain, p);
+
+            // Lit face gives the mountain a more natural 3D appearance.
+            Path litFace = new Path();
+            litFace.moveTo(centerX, baseY-height);
+            litFace.lineTo(centerX-halfWidth*0.12f, baseY-height*0.48f);
+            litFace.lineTo(centerX+halfWidth*0.02f, baseY-height*0.55f);
+            litFace.lineTo(centerX+halfWidth*0.42f, baseY);
+            litFace.close();
+            p.setColor(snowy ? 0xFF9CB7C9 : 0xFF6B9A69);
+            c.drawPath(litFace, p);
+
+            if (snowy) {
+                Path snow = new Path();
+                snow.moveTo(centerX, baseY-height);
+                snow.lineTo(centerX-halfWidth*0.22f, baseY-height*0.68f);
+                snow.lineTo(centerX-halfWidth*0.08f, baseY-height*0.70f);
+                snow.lineTo(centerX, baseY-height*0.78f);
+                snow.lineTo(centerX+halfWidth*0.10f, baseY-height*0.67f);
+                snow.lineTo(centerX+halfWidth*0.23f, baseY-height*0.70f);
+                snow.close();
+                p.setColor(0xFFF7FCFF);
+                c.drawPath(snow, p);
+            }
+        }
+
+        void drawTree(Canvas c, float centerX, float baseY, float scale,
+                      int trunkColor, int leafColor, boolean pine) {
+            float trunkW = 13*scale;
+            float trunkH = 54*scale;
+            p.setColor(trunkColor);
+            c.drawRect(centerX-trunkW/2, baseY-trunkH, centerX+trunkW/2, baseY, p);
+
+            if (pine) {
+                p.setColor(leafColor);
+                for (int layer=0; layer<3; layer++) {
+                    float top = baseY-trunkH-66*scale + layer*28*scale;
+                    float half = (25+layer*13)*scale;
+                    Path leaves = new Path();
+                    leaves.moveTo(centerX, top);
+                    leaves.lineTo(centerX-half, top+48*scale);
+                    leaves.lineTo(centerX+half, top+48*scale);
+                    leaves.close();
+                    c.drawPath(leaves, p);
+                }
+            } else {
+                p.setColor(leafColor);
+                c.drawCircle(centerX, baseY-trunkH-28*scale, 30*scale, p);
+                c.drawCircle(centerX-22*scale, baseY-trunkH-12*scale, 23*scale, p);
+                c.drawCircle(centerX+22*scale, baseY-trunkH-12*scale, 23*scale, p);
+                p.setColor(0x553FFFFFF);
+                c.drawCircle(centerX-10*scale, baseY-trunkH-34*scale, 9*scale, p);
+            }
+        }
+
         void drawTile(Canvas c, RectF r, Bitmap bitmap, int color) {
             if (bitmap != null) c.drawBitmap(bitmap,null,r,p);
             else {
@@ -434,4 +556,3 @@ public class MainActivity extends Activity {
         }
     }
 }
-
