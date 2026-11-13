@@ -23,9 +23,7 @@ public class MainActivity extends Activity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-
         setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE);
-
         game = new GameView();
         setContentView(game);
     }
@@ -52,13 +50,9 @@ public class MainActivity extends Activity {
 
         Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
 
-        float screenW, screenH;
-        float groundY;
-
-        float heroX = 100;
-        float heroY;
-        float heroW = 55;
-        float heroH = 75;
+        float screenW, screenH, groundY;
+        float heroX = 100, heroY;
+        float heroW = 55, heroH = 75;
 
         float velocityY = 0;
         float speed = 6.5f;
@@ -81,7 +75,8 @@ public class MainActivity extends Activity {
         boolean finished = false;
 
         boolean musicEnabled = true;
-        boolean musicRunning = false;
+        volatile boolean musicRunning = false;
+
         Thread musicThread;
 
         ArrayList<Pipe> pipes = new ArrayList<>();
@@ -89,8 +84,6 @@ public class MainActivity extends Activity {
         ArrayList<Coin> coins = new ArrayList<>();
         ArrayList<Platform> platforms = new ArrayList<>();
         ArrayList<Enemy> enemies = new ArrayList<>();
-
-        long lastTime = System.nanoTime();
 
         GameView() {
             super(MainActivity.this);
@@ -100,7 +93,6 @@ public class MainActivity extends Activity {
 
         class Pipe {
             float x, y, w, h;
-
             Pipe(float x, float y, float h) {
                 this.x = x;
                 this.y = y;
@@ -120,7 +112,6 @@ public class MainActivity extends Activity {
         class Coin {
             float x, y;
             boolean taken = false;
-
             Coin(float x, float y) {
                 this.x = x;
                 this.y = y;
@@ -129,7 +120,6 @@ public class MainActivity extends Activity {
 
         class Platform {
             float x, y, w, h;
-
             Platform(float x, float y, float w, float h) {
                 this.x = x;
                 this.y = y;
@@ -139,8 +129,7 @@ public class MainActivity extends Activity {
         }
 
         class Enemy {
-            float x, y;
-            float startX;
+            float x, y, startX;
             float range = 100;
             float speed = 1.5f;
             boolean alive = true;
@@ -178,8 +167,8 @@ public class MainActivity extends Activity {
 
             for (int i = 0; i < 7 + level; i++) {
                 float x = 600 + i * 550;
-                platforms.add(new Platform(x, groundY - 150 - (i % 3) * 35,
-                        130, 22));
+                platforms.add(new Platform(
+                    x, groundY - 150 - (i % 3) * 35, 130, 22));
             }
 
             for (int i = 0; i < 4 + level; i++) {
@@ -210,7 +199,6 @@ public class MainActivity extends Activity {
             if (screenW == 0 || screenH == 0) return;
 
             updateGame();
-
             drawBackground(c);
 
             c.save();
@@ -231,17 +219,15 @@ public class MainActivity extends Activity {
             drawScore(c);
 
             if (gameOver) drawMessage(c, "GAME OVER - TAP TO RESTART");
-            if (finished) drawMessage(c, "LEVEL COMPLETE!");
+            if (finished) drawMessage(c, "YOU WIN!");
 
             postInvalidateDelayed(16);
         }
 
         void updateGame() {
-
             if (gameOver || finished) return;
 
             float oldX = heroX;
-            float oldY = heroY;
             float oldBottom = heroY + heroH;
 
             float dx = 0;
@@ -255,46 +241,39 @@ public class MainActivity extends Activity {
 
             velocityY += gravity;
             if (velocityY > 20) velocityY = 20;
-
             heroY += velocityY;
+
             grounded = false;
 
-            // Ground collision
             if (heroY + heroH >= groundY) {
                 heroY = groundY - heroH;
                 velocityY = 0;
                 grounded = true;
             }
 
-            // Platform collision
             for (Platform platform : platforms) {
                 boolean horizontal =
-                        heroX + heroW > platform.x &&
-                        heroX < platform.x + platform.w;
+                    heroX + heroW > platform.x &&
+                    heroX < platform.x + platform.w;
 
-                if (horizontal &&
-                        oldBottom <= platform.y &&
-                        heroY + heroH >= platform.y &&
-                        velocityY >= 0) {
-
+                if (horizontal && oldBottom <= platform.y &&
+                    heroY + heroH >= platform.y && velocityY >= 0) {
                     heroY = platform.y - heroH;
                     velocityY = 0;
                     grounded = true;
                 }
             }
 
-            // Pipe collision
             for (Pipe pipe : pipes) {
                 boolean horizontal =
-                        heroX + heroW > pipe.x &&
-                        heroX < pipe.x + pipe.w;
+                    heroX + heroW > pipe.x &&
+                    heroX < pipe.x + pipe.w;
 
                 boolean vertical =
-                        heroY + heroH > pipe.y &&
-                        heroY < pipe.y + pipe.h;
+                    heroY + heroH > pipe.y &&
+                    heroY < groundY;
 
                 if (horizontal && vertical) {
-
                     if (oldBottom <= pipe.y + 8 && velocityY >= 0) {
                         heroY = pipe.y - heroH;
                         velocityY = 0;
@@ -307,16 +286,15 @@ public class MainActivity extends Activity {
                 }
             }
 
-            // Spring collision
             for (Spring s : springs) {
                 boolean horizontal =
-                        heroX + heroW > s.x &&
-                        heroX < s.x + 55;
+                    heroX + heroW > s.x &&
+                    heroX < s.x + 55;
 
                 boolean landing =
-                        oldBottom <= s.y + 25 &&
-                        heroY + heroH >= s.y &&
-                        velocityY >= 0;
+                    oldBottom <= s.y + 25 &&
+                    heroY + heroH >= s.y &&
+                    velocityY >= 0;
 
                 if (horizontal && landing) {
                     heroY = s.y - heroH;
@@ -326,35 +304,32 @@ public class MainActivity extends Activity {
                 }
             }
 
-            // Coins
             for (Coin coin : coins) {
                 if (!coin.taken &&
-                        heroX + heroW > coin.x - 18 &&
-                        heroX < coin.x + 18 &&
-                        heroY + heroH > coin.y - 18 &&
-                        heroY < coin.y + 18) {
-
+                    heroX + heroW > coin.x - 18 &&
+                    heroX < coin.x + 18 &&
+                    heroY + heroH > coin.y - 18 &&
+                    heroY < coin.y + 18) {
                     coin.taken = true;
                     score += 10;
                 }
             }
 
-            // Enemies
             for (Enemy enemy : enemies) {
                 if (!enemy.alive) continue;
 
                 enemy.x += enemy.speed;
 
                 if (enemy.x > enemy.startX + enemy.range ||
-                        enemy.x < enemy.startX - enemy.range) {
+                    enemy.x < enemy.startX - enemy.range) {
                     enemy.speed *= -1;
                 }
 
                 boolean hit =
-                        heroX + heroW > enemy.x &&
-                        heroX < enemy.x + 45 &&
-                        heroY + heroH > enemy.y &&
-                        heroY < enemy.y + 40;
+                    heroX + heroW > enemy.x &&
+                    heroX < enemy.x + 45 &&
+                    heroY + heroH > enemy.y &&
+                    heroY < enemy.y + 40;
 
                 if (hit) {
                     if (velocityY > 2 && oldBottom <= enemy.y + 15) {
@@ -372,16 +347,13 @@ public class MainActivity extends Activity {
                 }
             }
 
-            // Camera follows the player
             cameraX = heroX - screenW * 0.35f;
-
             if (cameraX < 0) cameraX = 0;
 
             float maxCamera = levelEnd - screenW;
             if (maxCamera < 0) maxCamera = 0;
             if (cameraX > maxCamera) cameraX = maxCamera;
 
-            // Finish level
             if (heroX >= levelEnd - 100) {
                 if (level < 10) {
                     level++;
@@ -414,12 +386,11 @@ public class MainActivity extends Activity {
             for (Platform platform : platforms) {
                 p.setColor(Color.rgb(160, 90, 35));
                 c.drawRect(platform.x, platform.y,
-                        platform.x + platform.w,
-                        platform.y + platform.h, p);
+                    platform.x + platform.w, platform.y + platform.h, p);
 
                 p.setColor(Color.YELLOW);
                 c.drawRect(platform.x, platform.y,
-                        platform.x + platform.w, platform.y + 6, p);
+                    platform.x + platform.w, platform.y + 6, p);
             }
         }
 
@@ -427,15 +398,15 @@ public class MainActivity extends Activity {
             for (Pipe pipe : pipes) {
                 p.setColor(Color.rgb(0, 130, 30));
                 c.drawRect(pipe.x, pipe.y + 15,
-                        pipe.x + pipe.w, groundY, p);
+                    pipe.x + pipe.w, groundY, p);
 
                 p.setColor(Color.rgb(0, 200, 50));
                 c.drawRect(pipe.x - 8, pipe.y,
-                        pipe.x + pipe.w + 8, pipe.y + 22, p);
+                    pipe.x + pipe.w + 8, pipe.y + 22, p);
 
                 p.setColor(Color.rgb(80, 230, 90));
                 c.drawRect(pipe.x + 12, pipe.y + 25,
-                        pipe.x + 22, groundY, p);
+                    pipe.x + 22, groundY, p);
             }
         }
 
@@ -470,7 +441,7 @@ public class MainActivity extends Activity {
 
                 p.setColor(Color.rgb(130, 50, 30));
                 c.drawOval(enemy.x, enemy.y,
-                        enemy.x + 45, enemy.y + 38, p);
+                    enemy.x + 45, enemy.y + 38, p);
 
                 p.setColor(Color.WHITE);
                 c.drawCircle(enemy.x + 12, enemy.y + 12, 5, p);
@@ -485,30 +456,31 @@ public class MainActivity extends Activity {
         void drawFinish(Canvas c) {
             p.setColor(Color.DKGRAY);
             c.drawRect(levelEnd, groundY - 200,
-                    levelEnd + 8, groundY, p);
+                levelEnd + 8, groundY, p);
 
             p.setColor(Color.RED);
-            PathHelper.drawFlag(c, p, levelEnd + 8, groundY - 200);
+            c.drawRect(levelEnd + 8, groundY - 200,
+                levelEnd + 73, groundY - 165, p);
         }
 
         void drawHero(Canvas c) {
-            // Original cartoon hero
             p.setColor(Color.RED);
-            c.drawRect(heroX + 5, heroY, heroX + 50, heroY + 25, p);
+            c.drawRect(heroX + 5, heroY,
+                heroX + 50, heroY + 25, p);
 
             p.setColor(Color.rgb(255, 190, 130));
             c.drawRect(heroX + 10, heroY + 22,
-                    heroX + 47, heroY + 48, p);
+                heroX + 47, heroY + 48, p);
 
             p.setColor(Color.BLUE);
             c.drawRect(heroX + 5, heroY + 48,
-                    heroX + 50, heroY + 70, p);
+                heroX + 50, heroY + 70, p);
 
             p.setColor(Color.BLACK);
             c.drawRect(heroX + 5, heroY + 68,
-                    heroX + 25, heroY + 75, p);
+                heroX + 25, heroY + 75, p);
             c.drawRect(heroX + 32, heroY + 68,
-                    heroX + 52, heroY + 75, p);
+                heroX + 52, heroY + 75, p);
 
             p.setColor(Color.BLACK);
             c.drawCircle(heroX + 35, heroY + 32, 3, p);
@@ -517,21 +489,22 @@ public class MainActivity extends Activity {
         void drawControls(Canvas c) {
             float y = screenH - 90;
 
-            // Larger buttons
-            drawButton(c, 85, y, 62, Color.rgb(30, 80, 200), "<");
-            drawButton(c, 225, y, 62, Color.rgb(30, 80, 200), ">");
-            drawButton(c, screenW - 95, y, 68,
-                    Color.rgb(20, 160, 50), "JUMP");
+            drawButton(c, 85, y, 62,
+                Color.rgb(30, 80, 200), "<");
 
-            // Music button
+            drawButton(c, 225, y, 62,
+                Color.rgb(30, 80, 200), ">");
+
+            drawButton(c, screenW - 95, y, 68,
+                Color.rgb(20, 160, 50), "JUMP");
+
             drawButton(c, screenW - 55, 55, 30,
-                    musicEnabled ? Color.GREEN : Color.GRAY,
-                    musicEnabled ? "♪" : "X");
+                musicEnabled ? Color.GREEN : Color.GRAY,
+                musicEnabled ? "♪" : "X");
         }
 
         void drawButton(Canvas c, float x, float y,
                         float radius, int color, String label) {
-
             p.setColor(Color.argb(150, 0, 0, 0));
             c.drawCircle(x + 3, y + 4, radius + 3, p);
 
@@ -558,28 +531,30 @@ public class MainActivity extends Activity {
 
         void drawMessage(Canvas c, String message) {
             p.setColor(Color.argb(190, 0, 0, 0));
-            c.drawRoundRect(new RectF(screenW / 2 - 220,
-                    screenH / 2 - 55,
-                    screenW / 2 + 220,
-                    screenH / 2 + 55), 20, 20, p);
+            c.drawRoundRect(new RectF(
+                screenW / 2 - 220, screenH / 2 - 55,
+                screenW / 2 + 220, screenH / 2 + 55),
+                20, 20, p);
 
             p.setColor(Color.WHITE);
             p.setTextSize(25);
             p.setTextAlign(Paint.Align.CENTER);
             c.drawText(message, screenW / 2,
-                    screenH / 2 + 8, p);
+                screenH / 2 + 8, p);
         }
 
         @Override
         public boolean onTouchEvent(MotionEvent event) {
-
             int action = event.getActionMasked();
 
             if (action == MotionEvent.ACTION_DOWN ||
-                    action == MotionEvent.ACTION_POINTER_DOWN) {
+                action == MotionEvent.ACTION_POINTER_DOWN) {
 
-                if (event.getY(event.getActionIndex()) < 100 &&
-                        event.getX(event.getActionIndex()) > screenW - 100) {
+                int index = event.getActionIndex();
+
+                if (event.getY(index) < 100 &&
+                    event.getX(index) > screenW - 100) {
+
                     musicEnabled = !musicEnabled;
 
                     if (musicEnabled) startMusicIfEnabled();
@@ -590,37 +565,32 @@ public class MainActivity extends Activity {
                 }
 
                 if (gameOver || finished) {
-                    if (action == MotionEvent.ACTION_DOWN) {
-                        level = 1;
-                        score = 0;
-                        lives = 3;
-                        gameOver = false;
-                        finished = false;
-                        createLevel();
-                    }
+                    level = 1;
+                    score = 0;
+                    lives = 3;
+                    gameOver = false;
+                    finished = false;
+                    createLevel();
+                    invalidate();
                     return true;
                 }
             }
 
-            if (action == MotionEvent.ACTION_UP ||
-                    action == MotionEvent.ACTION_POINTER_UP ||
-                    action == MotionEvent.ACTION_CANCEL) {
-                updateTouchControls(event, true);
-            } else {
-                updateTouchControls(event, false);
-            }
+            boolean released =
+                action == MotionEvent.ACTION_UP ||
+                action == MotionEvent.ACTION_POINTER_UP ||
+                action == MotionEvent.ACTION_CANCEL;
 
+            updateTouchControls(event, released);
             return true;
         }
 
         void updateTouchControls(MotionEvent event, boolean skipReleased) {
-
             boolean newLeft = false;
             boolean newRight = false;
             boolean newJump = false;
 
             for (int i = 0; i < event.getPointerCount(); i++) {
-
                 if (skipReleased && i == event.getActionIndex()) continue;
 
                 float x = event.getX(i);
@@ -647,11 +617,6 @@ public class MainActivity extends Activity {
             jump = newJump;
         }
 
-        @Override
-        public boolean onTouchEventSimple(MotionEvent event) {
-            return true;
-        }
-
         void startMusicIfEnabled() {
             if (!musicEnabled || musicRunning) return;
 
@@ -660,9 +625,9 @@ public class MainActivity extends Activity {
             musicThread = new Thread(() -> {
                 int sampleRate = 22050;
                 int bufferSize = AudioTrack.getMinBufferSize(
-                        sampleRate,
-                        AudioFormat.CHANNEL_OUT_MONO,
-                        AudioFormat.ENCODING_PCM_16BIT);
+                    sampleRate,
+                    AudioFormat.CHANNEL_OUT_MONO,
+                    AudioFormat.ENCODING_PCM_16BIT);
 
                 if (bufferSize < 2048) bufferSize = 2048;
 
@@ -670,12 +635,12 @@ public class MainActivity extends Activity {
 
                 try {
                     track = new AudioTrack(
-                            AudioManager.STREAM_MUSIC,
-                            sampleRate,
-                            AudioFormat.CHANNEL_OUT_MONO,
-                            AudioFormat.ENCODING_PCM_16BIT,
-                            bufferSize,
-                            AudioTrack.MODE_STREAM);
+                        AudioManager.STREAM_MUSIC,
+                        sampleRate,
+                        AudioFormat.CHANNEL_OUT_MONO,
+                        AudioFormat.ENCODING_PCM_16BIT,
+                        bufferSize,
+                        AudioTrack.MODE_STREAM);
 
                     track.play();
 
@@ -684,20 +649,17 @@ public class MainActivity extends Activity {
                     int note = 0;
 
                     double[] melody = {
-                            523.25, 659.25, 783.99, 659.25,
-                            587.33, 698.46, 880.00, 698.46,
-                            523.25, 659.25, 783.99, 1046.5
+                        523.25, 659.25, 783.99, 659.25,
+                        587.33, 698.46, 880.00, 698.46,
+                        523.25, 659.25, 783.99, 1046.5
                     };
 
                     while (musicRunning) {
                         double frequency = melody[note];
 
                         for (int i = 0; i < buffer.length; i++) {
-                            buffer[i] = (short) (
-                                    Math.sin(phase) * 3500);
-
-                            phase += 2.0 * Math.PI *
-                                    frequency / sampleRate;
+                            buffer[i] = (short)(Math.sin(phase) * 3500);
+                            phase += 2.0 * Math.PI * frequency / sampleRate;
 
                             if (phase > 2.0 * Math.PI) {
                                 phase -= 2.0 * Math.PI;
@@ -712,6 +674,8 @@ public class MainActivity extends Activity {
                 } finally {
                     if (track != null) {
                         try {
+                            track.pause();
+                            track.flush();
                             track.stop();
                             track.release();
                         } catch (Exception ignored) {
@@ -727,15 +691,6 @@ public class MainActivity extends Activity {
 
         void stopMusic() {
             musicRunning = false;
-        }
-    }
-
-    static class PathHelper {
-        static void drawFlag(Canvas c, Paint p, float x, float y) {
-            p.setColor(Color.RED);
-            c.drawRect(x, y, x + 65, y + 35, p);
-            p.setColor(Color.YELLOW);
-            c.drawCircle(x + 18, y + 17, 7, p);
         }
     }
 }
