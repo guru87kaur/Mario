@@ -4,269 +4,170 @@ package com.example.jumphero;
 
 import android.app.Activity;
 import android.os.Bundle;
-import android.content.Context;
+import android.view.View;
+import android.view.MotionEvent;
 import android.graphics.*;
-import android.view.*;
-import android.widget.*;
-import android.graphics.drawable.GradientDrawable;
 import java.util.ArrayList;
+import java.util.Iterator;
 
 public class MainActivity extends Activity {
 
     @Override
-    public void onCreate(Bundle b) {
-        super.onCreate(b);
-
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
         getWindow().getDecorView().setSystemUiVisibility(
             View.SYSTEM_UI_FLAG_FULLSCREEN |
             View.SYSTEM_UI_FLAG_HIDE_NAVIGATION |
             View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
         );
-
-        setContentView(new GamePanel(this));
-    }
-
-    class GamePanel extends FrameLayout {
-        GameView game;
-
-        GamePanel(Context c) {
-            super(c);
-
-            game = new GameView(c);
-            addView(game, new FrameLayout.LayoutParams(-1, -1));
-
-            LinearLayout controls = new LinearLayout(c);
-            controls.setGravity(Gravity.CENTER_VERTICAL);
-            controls.setPadding(15, 0, 15, 20);
-
-            LayoutParams cp = new LayoutParams(-1, -2, Gravity.BOTTOM);
-            addView(controls, cp);
-
-            LinearLayout movement = new LinearLayout(c);
-            Button left = makeButton(c, "◀");
-            Button right = makeButton(c, "▶");
-            Button jump = makeButton(c, "JUMP");
-
-            movement.addView(left);
-            movement.addView(right);
-
-            controls.addView(movement,
-                new LinearLayout.LayoutParams(0, -2, 1));
-
-            controls.addView(jump);
-
-            bind(left, 1);
-            bind(right, 2);
-            bind(jump, 3);
-        }
-
-        Button makeButton(Context c, String text) {
-            Button b = new Button(c);
-            b.setText(text);
-            b.setTextSize(22);
-            b.setTextColor(Color.WHITE);
-
-            GradientDrawable bg = new GradientDrawable();
-            bg.setColor(0xDD263238);
-            bg.setCornerRadius(22);
-            bg.setStroke(3, Color.WHITE);
-            b.setBackground(bg);
-
-            LinearLayout.LayoutParams lp =
-                new LinearLayout.LayoutParams(
-                    text.equals("JUMP") ? 125 : 95, 85
-                );
-
-            lp.setMargins(6, 0, 6, 0);
-            b.setLayoutParams(lp);
-            return b;
-        }
-
-        void bind(Button b, int action) {
-            b.setOnTouchListener((v, e) -> {
-                if (e.getAction() == MotionEvent.ACTION_DOWN) {
-                    game.control(action, true);
-                    return true;
-                }
-
-                if (e.getAction() == MotionEvent.ACTION_UP ||
-                    e.getAction() == MotionEvent.ACTION_CANCEL) {
-                    game.control(action, false);
-                    return true;
-                }
-                return true;
-            });
-        }
+        setContentView(new GameView());
     }
 
     class GameView extends View {
 
+        Canvas c;
         Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
+        Bitmap heroIdle, heroRun, heroCrawl;
+        Bitmap bombImg, turtleImg, bulletImg;
+        Bitmap cloudImg, flowerImg, castleImg;
 
-        Bitmap hero, cloud, castle, flower;
-        Bitmap brick, pipe, enemy, tree, mountain, ground;
-        Bitmap[] levelBackgrounds = new Bitmap[10];
+        float playerX = 100;
+        float playerY = 250;
+        float playerW = 48;
+        float playerH = 58;
+        float velocityX = 0;
+        float velocityY = 0;
+        float cameraX = 0;
+
+        boolean left = false;
+        boolean right = false;
+        boolean jump = false;
+        boolean onGround = false;
+        boolean crawling = false;
+        boolean gameOver = false;
+        boolean finished = false;
+
+        int score = 0;
+        int lives = 3;
+        int level = 1;
+        int animation = 0;
+        int frame = 0;
+
+        float worldWidth = 3600;
+        final float WORLD_HEIGHT = 450;
 
         ArrayList<RectF> platforms = new ArrayList<>();
-        ArrayList<Boolean> breakable = new ArrayList<>();
-        ArrayList<RectF> pipes = new ArrayList<>();
-        ArrayList<RectF> coins = new ArrayList<>();
+        ArrayList<RectF> bricks = new ArrayList<>();
         ArrayList<Enemy> enemies = new ArrayList<>();
-        ArrayList<Piece> pieces = new ArrayList<>();
-
-        float x = 80, y = 350;
-        float vx, vy, camera;
-        float heroW = 65, heroH = 80;
-        float worldW = 3500;
-
-        boolean left, right, onGround, facingRight = true;
-        boolean gameOver, won;
-
-        int level = 1, score = 0, lives = 3;
-        long lastTime = System.nanoTime();
+        ArrayList<RectF> clouds = new ArrayList<>();
 
         class Enemy {
-            float x, min, max, speed = 1.5f;
+            float x, y, w, h, speed;
+            int type;
             boolean alive = true;
 
-            Enemy(float x) {
-                this.x = x;
-                min = x - 80;
-                max = x + 80;
-            }
-        }
-
-        class Piece {
-            float x, y, vx, vy;
-
-            Piece(float x, float y, float vx, float vy) {
+            Enemy(float x, float y, int type) {
                 this.x = x;
                 this.y = y;
-                this.vx = vx;
-                this.vy = vy;
+                this.type = type;
+                w = 38;
+                h = 38;
+                speed = 1.3f;
             }
         }
 
-        GameView(Context c) {
-            super(c);
+        GameView() {
+            super(MainActivity.this);
             setLayerType(View.LAYER_TYPE_SOFTWARE, null);
-            loadImages(c);
-            buildLevel();
+
+            heroIdle = load("hero_idle");
+            heroRun = load("hero_run");
+            heroCrawl = load("hero_crawl");
+
+            bombImg = load("bomb");
+            turtleImg = load("turtle");
+            bulletImg = load("bullet");
+
+            cloudImg = load("cloud");
+            flowerImg = load("flower");
+            castleImg = load("castle");
+
+            loadLevel();
         }
 
-        Bitmap load(Context c, String name) {
+        Bitmap load(String name) {
             int id = getResources().getIdentifier(
-                name, "drawable", c.getPackageName());
-
+                name, "drawable", getPackageName()
+            );
             if (id == 0) return null;
 
             try {
-                return BitmapFactory.decodeResource(getResources(), id);
+                return BitmapFactory.decodeResource(
+                    getResources(), id
+                );
             } catch (Exception e) {
                 return null;
             }
         }
 
-        void loadImages(Context c) {
-            hero = load(c, "doraemon");
-            if (hero == null) hero = load(c, "doremon");
-
-            cloud = load(c, "cloud");
-            castle = load(c, "castle");
-            flower = load(c, "flower");
-            brick = load(c, "brick");
-            pipe = load(c, "pipe");
-            enemy = load(c, "enemy");
-            tree = load(c, "tree");
-            mountain = load(c, "mountain");
-            ground = load(c, "ground");
-
-            for (int i = 0; i < 10; i++) {
-                levelBackgrounds[i] =
-                    load(c, "level" + (i + 1) + "_background");
-            }
-        }
-
-        void buildLevel() {
+        void loadLevel() {
             platforms.clear();
-            breakable.clear();
-            pipes.clear();
-            coins.clear();
+            bricks.clear();
             enemies.clear();
-            pieces.clear();
+            clouds.clear();
 
-            worldW = 3400 + level * 150;
+            playerX = 100;
+            playerY = 250;
+            velocityX = 0;
+            velocityY = 0;
+            cameraX = 0;
+            finished = false;
 
-            for (int i = 0; i < 12 + level; i++) {
-                float px = 350 + i * 225;
-                float py;
-                float width;
+            worldWidth = 3600 + (level - 1) * 400;
 
-                switch (level % 5) {
-                    case 1:
-                        py = 390 - (i % 3) * 55;
-                        width = 125;
-                        break;
-                    case 2:
-                        py = 365 - (i % 4) * 45;
-                        width = 95;
-                        break;
-                    case 3:
-                        py = 415 - (i % 2) * 80;
-                        width = 160;
-                        break;
-                    case 4:
-                        py = 445 - (i % 4) * 65;
-                        width = 110;
-                        break;
-                    default:
-                        py = 350 - (i % 3) * 70;
-                        width = 105;
-                        break;
-                }
+            // Ground
+            platforms.add(new RectF(0, 400, worldWidth, 450));
 
-                platforms.add(new RectF(px, py, px + width, py + 28));
-                breakable.add(i % 3 != 0);
+            // Floating platforms
+            platforms.add(new RectF(350, 320, 550, 340));
+            platforms.add(new RectF(750, 280, 950, 300));
+            platforms.add(new RectF(1150, 330, 1370, 350));
+            platforms.add(new RectF(1600, 290, 1810, 310));
+            platforms.add(new RectF(2100, 320, 2310, 340));
+            platforms.add(new RectF(2600, 280, 2820, 300));
+            platforms.add(new RectF(3050, 330, 3260, 350));
 
-                if (i % 2 == 0) {
-                    coins.add(new RectF(
-                        px + 40, py - 55, px + 65, py - 30));
-                }
+            // Brick blocks
+            for (int i = 0; i < 8; i++) {
+                float x = 450 + i * 120;
+                bricks.add(new RectF(x, 220, x + 48, 268));
             }
 
-            for (int i = 0; i < 4 + level % 4; i++) {
-                float px = 650 + i * (420 + level * 5);
-                pipes.add(new RectF(
-                    px, 420 - (i % 3) * 15, px + 75, 510));
+            for (int i = 0; i < 7; i++) {
+                float x = 1450 + i * 110;
+                bricks.add(new RectF(x, 210, x + 48, 258));
             }
 
-            for (int i = 0; i < 4 + level; i++) {
-                enemies.add(new Enemy(550 + i * 380));
+            for (int i = 0; i < 7; i++) {
+                float x = 2350 + i * 110;
+                bricks.add(new RectF(x, 225, x + 48, 273));
             }
 
-            x = 70;
-            y = 250;
-            vx = 0;
-            vy = 0;
-            camera = 0;
-            onGround = false;
-            left = false;
-            right = false;
-            facingRight = true;
+            // Enemies: bomb, turtle and bullet
+            enemies.add(new Enemy(600, 362, 0));
+            enemies.add(new Enemy(1000, 362, 1));
+            enemies.add(new Enemy(1400, 362, 2));
+            enemies.add(new Enemy(1900, 362, 0));
+            enemies.add(new Enemy(2400, 362, 1));
+            enemies.add(new Enemy(2900, 362, 2));
+            enemies.add(new Enemy(3300, 362, 0));
 
-            won = false;
-            gameOver = false;
-            lastTime = System.nanoTime();
-        }
-
-        void control(int action, boolean pressed) {
-            if (action == 1) left = pressed;
-            if (action == 2) right = pressed;
-
-            if (action == 3 && pressed &&
-                onGround && !gameOver && !won) {
-                vy = -17;
-                onGround = false;
+            // Clouds
+            for (int i = 0; i < 15; i++) {
+                clouds.add(new RectF(
+                    i * 270 + 50, 35 + (i % 3) * 30,
+                    i * 270 + 150, 90 + (i % 3) * 30
+                ));
             }
         }
 
@@ -274,385 +175,487 @@ public class MainActivity extends Activity {
         protected void onDraw(Canvas canvas) {
             super.onDraw(canvas);
 
-            float sx = getWidth() / 900f;
-            float sy = getHeight() / 600f;
-
-            canvas.save();
-            canvas.scale(sx, sy);
-
-            updateGame();
-            drawWorld(canvas);
-
-            canvas.restore();
-            postInvalidateDelayed(16);
-        }
-
-        void updateGame() {
-            if (gameOver || won) return;
-
-            long now = System.nanoTime();
-            float dt = Math.min(2,
-                (now - lastTime) / 16666667f);
-            lastTime = now;
-
-            float speed = 4.5f + level * 0.15f;
-
-            vx = left ? -speed : right ? speed : 0;
-
-            if (left) facingRight = false;
-            if (right) facingRight = true;
-
-            x += vx * dt;
-            if (x < 0) x = 0;
-
-            float oldY = y;
-
-            vy += 0.72f * dt;
-            y += vy * dt;
-
-            onGround = false;
-            float floor = 510;
-
-            if (y + heroH >= floor &&
-                oldY + heroH <= floor + 12) {
-                y = floor - heroH;
-                vy = 0;
-                onGround = true;
-            }
-
-            for (int i = platforms.size() - 1; i >= 0; i--) {
-                RectF r = platforms.get(i);
-
-                boolean hit = x + heroW - 7 > r.left &&
-                              x + 7 < r.right;
-
-                if (hit && vy >= 0 &&
-                    oldY + heroH <= r.top + 8 &&
-                    y + heroH >= r.top) {
-                    y = r.top - heroH;
-                    vy = 0;
-                    onGround = true;
-                } else if (hit && vy < 0 &&
-                    oldY >= r.bottom - 5 &&
-                    y <= r.bottom &&
-                    breakable.get(i)) {
-
-                    breakBrick(r);
-                    platforms.remove(i);
-                    breakable.remove(i);
-                    score += 5;
-                    y = r.bottom;
-                    vy = 1.5f;
-                }
-            }
-
-            updatePieces(dt);
-
-            RectF player = new RectF(
-                x + 8, y + 8, x + heroW - 8, y + heroH);
-
-            for (int i = coins.size() - 1; i >= 0; i--) {
-                if (RectF.intersects(player, coins.get(i))) {
-                    coins.remove(i);
-                    score += 10;
-                }
-            }
-
-            for (Enemy e : enemies) {
-                if (!e.alive) continue;
-
-                e.x += e.speed * dt;
-
-                if (e.x < e.min || e.x > e.max) {
-                    e.speed *= -1;
-                }
-
-                RectF er = new RectF(e.x, 470, e.x + 45, 510);
-                player.set(x + 8, y + 8,
-                    x + heroW - 8, y + heroH);
-
-                if (RectF.intersects(player, er)) {
-                    if (vy > 1 && y + heroH < 490) {
-                        e.alive = false;
-                        vy = -9;
-                        score += 20;
-                    } else {
-                        lives--;
-                        x = Math.max(40, x - 150);
-                        y = 200;
-                        vy = 0;
-
-                        if (lives <= 0) gameOver = true;
-                    }
-                }
-            }
-
-            for (RectF r : pipes) {
-                player.set(x + 8, y + 8,
-                    x + heroW - 8, y + heroH);
-
-                if (RectF.intersects(player, r) &&
-                    y + heroH > r.top + 12) {
-                    if (vx > 0) x = r.left - heroW;
-                    if (vx < 0) x = r.right;
-                }
-            }
-
-            if (y > 650) {
-                lives--;
-                x = Math.max(40, x - 150);
-                y = 200;
-                vy = 0;
-                if (lives <= 0) gameOver = true;
-            }
-
-            camera = Math.max(0,
-                Math.min(worldW - 900, x - 350));
-
-            if (x + heroW >= worldW - 120) {
-                if (level < 10) {
-                    level++;
-                    buildLevel();
-                } else {
-                    won = true;
-                }
-            }
-        }
-
-        void breakBrick(RectF r) {
-            float cx = r.centerX();
-            float cy = r.centerY();
-
-            pieces.add(new Piece(cx - 10, cy, -3, -6));
-            pieces.add(new Piece(cx + 5, cy, 3, -7));
-            pieces.add(new Piece(cx - 10, cy - 10, -2, -4));
-            pieces.add(new Piece(cx + 5, cy - 10, 2, -5));
-        }
-
-        void updatePieces(float dt) {
-            for (int i = pieces.size() - 1; i >= 0; i--) {
-                Piece b = pieces.get(i);
-                b.x += b.vx * dt;
-                b.y += b.vy * dt;
-                b.vy += 0.6f * dt;
-
-                if (b.y > 620) pieces.remove(i);
-            }
-        }
-
-        void drawBitmap(Canvas c, Bitmap bitmap,
-                        float x, float y, float w, float h) {
-            if (bitmap != null) {
-                c.drawBitmap(bitmap, null,
-                    new RectF(x, y, x + w, y + h), p);
-            }
-        }
-
-        void drawWorld(Canvas c) {
-            c.drawColor(0xFF75C9F4);
-
-            Bitmap bg = levelBackgrounds[level - 1];
-
-            if (bg != null) {
-                drawBitmap(c, bg, 0, 0, 900, 510);
-            } else {
-                drawMountains(c);
-            }
+            c = canvas;
 
             c.save();
-            c.translate(-camera, 0);
+            c.scale(getWidth() / 800f, getHeight() / 450f);
 
-            if (cloud != null) {
-                for (int i = 0; i < 12; i++) {
-                    drawBitmap(c, cloud,
-                        i * 280, 55 + (i % 3) * 45, 115, 65);
-                }
-            }
+            drawBackground();
 
-            if (castle != null) {
-                for (int i = 0; i < 4; i++) {
-                    drawBitmap(c, castle,
-                        500 + i * 1050, 310, 220, 200);
-                }
-            }
+            c.save();
+            c.translate(-cameraX, 0);
 
-            if (tree != null) {
-                for (int i = 0; i < 30; i++) {
-                    drawBitmap(c, tree,
-                        i * 135, 390, 95, 125);
-                }
-            }
-
-            if (mountain != null) {
-                for (int i = 0; i < 12; i++) {
-                    drawBitmap(c, mountain,
-                        i * 330, 285, 250, 225);
-                }
-            }
-
-            p.setColor(0xFF36A83B);
-            c.drawRect(0, 510, worldW, 600, p);
-
-            p.setColor(0xFF92552D);
-            c.drawRect(0, 535, worldW, 600, p);
-
-            if (ground != null) {
-                for (int i = 0; i < worldW; i += 64) {
-                    drawBitmap(c, ground, i, 510, 64, 70);
-                }
-            }
-
-            if (flower != null) {
-                for (int i = 0; i < worldW / 100; i++) {
-                    drawBitmap(c, flower,
-                        i * 100 + 15, 475, 35, 40);
-                }
-            }
-
-            for (RectF r : platforms) {
-                if (brick != null) {
-                    c.drawBitmap(brick, null, r, p);
-                } else {
-                    p.setColor(0xFFB7652B);
-                    c.drawRect(r, p);
-                    p.setColor(0xFFFFC078);
-                    p.setStyle(Paint.Style.STROKE);
-                    p.setStrokeWidth(3);
-                    c.drawRect(r, p);
-                    p.setStyle(Paint.Style.FILL);
-                }
-            }
-
-            for (Piece b : pieces) {
-                p.setColor(0xFFB7652B);
-                c.drawRect(b.x, b.y,
-                    b.x + 14, b.y + 14, p);
-            }
-
-            for (RectF r : pipes) {
-                if (pipe != null) {
-                    c.drawBitmap(pipe, null, r, p);
-                } else {
-                    p.setColor(0xFF168C36);
-                    c.drawRect(r, p);
-                }
-            }
-
-            for (RectF r : coins) {
-                p.setColor(0xFFFFD52A);
-                c.drawOval(r, p);
-            }
-
-            for (Enemy e : enemies) {
-                if (!e.alive) continue;
-
-                if (enemy != null) {
-                    drawBitmap(c, enemy, e.x, 465, 48, 45);
-                } else {
-                    p.setColor(0xFF9A4C25);
-                    c.drawOval(e.x, 470, e.x + 45, 510, p);
-                }
-            }
-
-            float fx = worldW - 105;
-
-            p.setColor(Color.WHITE);
-            p.setStrokeWidth(7);
-            c.drawLine(fx, 260, fx, 510, p);
-
-            Path flag = new Path();
-            flag.moveTo(fx, 265);
-            flag.lineTo(fx + 85, 290);
-            flag.lineTo(fx, 320);
-            flag.close();
-
-            p.setColor(Color.RED);
-            c.drawPath(flag, p);
-
-            if (hero != null) {
-                RectF dest = new RectF(
-                    x, y, x + heroW, y + heroH);
-
-                if (facingRight) {
-                    c.drawBitmap(hero, null, dest, p);
-                } else {
-                    c.save();
-                    c.scale(-1, 1,
-                        x + heroW / 2, y + heroH / 2);
-                    c.drawBitmap(hero, null, dest, p);
-                    c.restore();
-                }
-            } else {
-                p.setColor(0xFF168ED0);
-                c.drawOval(x, y, x + heroW, y + heroH, p);
-                p.setColor(Color.WHITE);
-                c.drawCircle(x + 23, y + 20, 9, p);
-                c.drawCircle(x + 43, y + 20, 9, p);
-            }
+            drawPlatforms();
+            drawBricks();
+            drawFlowers();
+            drawCastle();
+            drawEnemies();
+            drawPlayer();
+            drawFlag();
 
             c.restore();
 
+            drawControls();
+            drawHUD();
+
+            c.restore();
+
+            update();
+            postInvalidateDelayed(16);
+        }
+
+        void color(int col) {
+            p.setColor(col);
+            p.setStyle(Paint.Style.FILL);
+        }
+
+        void drawBackground() {
+            p.setShader(new LinearGradient(
+                0, 0, 0, 450,
+                Color.rgb(80, 190, 255),
+                Color.rgb(205, 240, 255),
+                Shader.TileMode.CLAMP
+            ));
+            c.drawRect(0, 0, 800, 450, p);
+            p.setShader(null);
+
+            for (RectF cloud : clouds) {
+                if (cloudImg != null) {
+                    drawBitmap(cloudImg, cloud);
+                } else {
+                    color(Color.WHITE);
+                    c.drawOval(cloud, p);
+                    c.drawCircle(cloud.left + 25, cloud.top,
+                        25, p);
+                    c.drawCircle(cloud.left + 55, cloud.top - 5,
+                        30, p);
+                }
+            }
+
+            // Sun
+            color(Color.YELLOW);
+            c.drawCircle(720, 65, 35, p);
+
+            // Hills
+            color(Color.rgb(65, 190, 80));
+            for (int i = 0; i < 6; i++) {
+                float x = i * 180 - cameraX * 0.2f;
+                c.drawCircle(x, 405, 110, p);
+            }
+        }
+
+        void drawPlatforms() {
+            for (RectF r : platforms) {
+                color(Color.rgb(125, 75, 35));
+                c.drawRect(r, p);
+
+                color(Color.rgb(55, 185, 60));
+                c.drawRect(r.left, r.top, r.right,
+                    Math.min(r.top + 9, r.bottom), p);
+
+                color(Color.rgb(160, 105, 50));
+                for (float x = r.left; x < r.right; x += 35) {
+                    c.drawRect(x, r.top + 15,
+                        x + 3, r.bottom, p);
+                }
+            }
+        }
+
+        void drawBricks() {
+            for (RectF b : bricks) {
+                color(Color.rgb(220, 110, 35));
+                c.drawRect(b, p);
+
+                color(Color.rgb(255, 180, 75));
+                p.setStyle(Paint.Style.STROKE);
+                p.setStrokeWidth(3);
+                c.drawRect(b, p);
+                p.setStyle(Paint.Style.FILL);
+
+                color(Color.rgb(120, 60, 30));
+                c.drawLine(b.left, b.centerY(),
+                    b.right, b.centerY(), p);
+                c.drawLine(b.centerX(), b.top,
+                    b.centerX(), b.centerY(), p);
+                c.drawLine(b.left + 12, b.centerY(),
+                    b.left + 12, b.bottom, p);
+            }
+        }
+
+        void drawFlowers() {
+            for (int i = 0; i < 30; i++) {
+                float x = i * 125 + 60;
+
+                if (flowerImg != null) {
+                    drawBitmap(flowerImg,
+                        new RectF(x, 360, x + 35, 400));
+                } else {
+                    color(Color.GREEN);
+                    c.drawRect(x + 14, 380, x + 19, 400, p);
+
+                    color(Color.RED);
+                    c.drawCircle(x + 12, 370, 7, p);
+                    c.drawCircle(x + 22, 370, 7, p);
+                    c.drawCircle(x + 17, 363, 7, p);
+                    color(Color.YELLOW);
+                    c.drawCircle(x + 17, 370, 5, p);
+                }
+            }
+        }
+
+        void drawCastle() {
+            float x = worldWidth - 240;
+
+            if (castleImg != null) {
+                drawBitmap(castleImg,
+                    new RectF(x, 245, x + 210, 400));
+                return;
+            }
+
+            color(Color.rgb(230, 175, 115));
+            c.drawRect(x, 275, x + 180, 400, p);
+            c.drawRect(x + 30, 230, x + 70, 400, p);
+            c.drawRect(x + 115, 230, x + 155, 400, p);
+
+            color(Color.RED);
+            c.drawRect(x + 20, 210, x + 80, 235, p);
+            c.drawRect(x + 105, 210, x + 165, 235, p);
+
+            color(Color.rgb(100, 55, 30));
+            c.drawRect(x + 70, 340, x + 115, 400, p);
+
+            color(Color.YELLOW);
+            c.drawRect(x + 88, 300, x + 97, 315, p);
+        }
+
+        void drawEnemies() {
+            for (Enemy e : enemies) {
+                if (!e.alive) continue;
+
+                Bitmap img = e.type == 0 ? bombImg :
+                             e.type == 1 ? turtleImg : bulletImg;
+
+                RectF dst = new RectF(
+                    e.x, e.y, e.x + e.w, e.y + e.h
+                );
+
+                if (img != null) {
+                    drawBitmap(img, dst);
+                } else {
+                    color(e.type == 0 ? Color.BLACK :
+                          e.type == 1 ? Color.GREEN : Color.GRAY);
+                    c.drawOval(dst, p);
+
+                    color(Color.WHITE);
+                    c.drawCircle(e.x + 25, e.y + 12, 4, p);
+                }
+            }
+        }
+
+        void drawPlayer() {
+            Bitmap img = heroIdle;
+
+            if (crawling && heroCrawl != null) {
+                img = heroCrawl;
+            } else if (Math.abs(velocityX) > 0.5f &&
+                       heroRun != null) {
+                img = heroRun;
+            }
+
+            RectF dst = new RectF(
+                playerX, playerY,
+                playerX + playerW,
+                playerY + playerH
+            );
+
+            if (img != null) {
+                c.save();
+
+                // Face right when moving right
+                if (velocityX < -0.5f) {
+                    c.scale(-1, 1,
+                        playerX + playerW / 2,
+                        playerY + playerH / 2);
+                }
+
+                drawBitmap(img, dst);
+                c.restore();
+            } else {
+                // Fallback Doraemon-like character
+                color(Color.rgb(30, 145, 220));
+                c.drawOval(dst, p);
+
+                color(Color.WHITE);
+                c.drawCircle(playerX + 24,
+                    playerY + 23, 18, p);
+
+                color(Color.RED);
+                c.drawRect(playerX + 12,
+                    playerY + 38, playerX + 36,
+                    playerY + 43, p);
+
+                color(Color.BLACK);
+                c.drawCircle(playerX + 18,
+                    playerY + 18, 3, p);
+                c.drawCircle(playerX + 30,
+                    playerY + 18, 3, p);
+            }
+        }
+
+        void drawFlag() {
+            float x = worldWidth - 100;
+
+            color(Color.DKGRAY);
+            c.drawRect(x, 210, x + 7, 400, p);
+
+            Path flag = new Path();
+            flag.moveTo(x + 7, 210);
+            flag.lineTo(x + 65, 230);
+            flag.lineTo(x + 7, 250);
+            flag.close();
+
+            color(Color.RED);
+            c.drawPath(flag, p);
+
+            color(Color.YELLOW);
+            c.drawCircle(x + 7, 205, 7, p);
+        }
+
+        void drawBitmap(Bitmap bitmap, RectF dst) {
+            if (bitmap == null) return;
             p.setColor(Color.WHITE);
-            p.setTextSize(25);
+            p.setAlpha(255);
+            c.drawBitmap(bitmap, null, dst, p);
+        }
+
+        void drawControls() {
+            drawButton(75, 365, 165, 440, "◀");
+            drawButton(175, 365, 265, 440, "▶");
+            drawButton(660, 350, 790, 445, "JUMP");
+            drawButton(550, 365, 645, 440, "DOWN");
+        }
+
+        void drawButton(float l, float t, float r,
+                        float b, String text) {
+            color(0xAA263C55);
+            c.drawRoundRect(l, t, r, b, 18, 18, p);
+
+            p.setColor(Color.WHITE);
+            p.setTextSize(text.equals("JUMP") ? 23 : 32);
+            p.setTypeface(Typeface.DEFAULT_BOLD);
+            p.setTextAlign(Paint.Align.CENTER);
+            c.drawText(text, (l + r) / 2,
+                (t + b) / 2 + 10, p);
+            p.setTextAlign(Paint.Align.LEFT);
+        }
+
+        void drawHUD() {
+            color(Color.BLACK);
+            p.setTextSize(22);
             p.setTypeface(Typeface.DEFAULT_BOLD);
 
-            c.drawText("LEVEL " + level + "/10", 25, 40, p);
-            c.drawText("SCORE " + score, 250, 40, p);
-            c.drawText("LIVES " + lives, 470, 40, p);
+            c.drawText("SCORE: " + score, 20, 30, p);
+            c.drawText("LIVES: " + lives, 230, 30, p);
+            c.drawText("LEVEL: " + level, 390, 30, p);
 
-            if (gameOver || won) {
-                p.setColor(0xCC000000);
-                c.drawRect(0, 0, 900, 600, p);
+            if (gameOver || finished) {
+                color(0xCC000000);
+                c.drawRect(0, 0, 800, 450, p);
 
-                p.setColor(Color.WHITE);
-                p.setTextSize(48);
+                color(Color.WHITE);
+                p.setTextSize(38);
                 p.setTextAlign(Paint.Align.CENTER);
 
-                c.drawText(
-                    won ? "YOU WIN!" : "GAME OVER",
-                    450, 270, p);
+                c.drawText(gameOver ? "GAME OVER" :
+                    "LEVEL COMPLETE!", 400, 190, p);
 
-                p.setTextSize(23);
-                c.drawText("Tap screen to restart",
-                    450, 320, p);
+                p.setTextSize(22);
+                c.drawText("TAP TO CONTINUE", 400, 245, p);
 
                 p.setTextAlign(Paint.Align.LEFT);
             }
         }
 
-        void drawMountains(Canvas c) {
-            p.setColor(0xFF477C9C);
+        void update() {
+            if (gameOver || finished) return;
 
-            for (int i = 0; i < 8; i++) {
-                float mx = i * 150;
-                Path path = new Path();
+            frame++;
 
-                path.moveTo(mx, 510);
-                path.lineTo(mx + 90, 275 + (i % 3) * 30);
-                path.lineTo(mx + 180, 510);
-                path.close();
+            if (left) velocityX = -4;
+            else if (right) velocityX = 4;
+            else velocityX *= 0.75f;
 
-                c.drawPath(path, p);
+            playerX += velocityX;
 
-                p.setColor(Color.WHITE);
-                c.drawCircle(
-                    mx + 90, 290 + (i % 3) * 30, 14, p);
+            if (playerX < 0) playerX = 0;
+            if (playerX > worldWidth - playerW)
+                playerX = worldWidth - playerW;
 
-                p.setColor(0xFF477C9C);
+            // Gravity
+            velocityY += 0.55f;
+            if (velocityY > 12) velocityY = 12;
+
+            float oldBottom = playerY + playerH;
+            playerY += velocityY;
+            onGround = false;
+
+            // Landing on platforms
+            if (velocityY >= 0) {
+                for (RectF r : platforms) {
+                    if (playerX + playerW > r.left &&
+                        playerX < r.right &&
+                        oldBottom <= r.top + 5 &&
+                        playerY + playerH >= r.top) {
+
+                        playerY = r.top - playerH;
+                        velocityY = 0;
+                        onGround = true;
+                    }
+                }
+            }
+
+            // Hit bricks from below
+            if (velocityY < 0) {
+                Iterator<RectF> it = bricks.iterator();
+
+                while (it.hasNext()) {
+                    RectF b = it.next();
+
+                    if (playerX + playerW > b.left &&
+                        playerX < b.right &&
+                        playerY <= b.bottom &&
+                        playerY >= b.bottom - 22) {
+
+                        it.remove();
+                        velocityY = 2;
+                        score += 10;
+                        break;
+                    }
+                }
+            }
+
+            if (playerY > 470) {
+                loseLife();
+            }
+
+            // Camera follows Doraemon
+            cameraX = playerX - 280;
+            if (cameraX < 0) cameraX = 0;
+            if (cameraX > worldWidth - 800)
+                cameraX = worldWidth - 800;
+
+            updateEnemies();
+
+            // Reach finish flag
+            if (playerX >= worldWidth - 125) {
+                finished = true;
             }
         }
 
+        void updateEnemies() {
+            for (Enemy e : enemies) {
+                if (!e.alive) continue;
+
+                e.x += e.speed;
+
+                if (e.x < 300 || e.x > worldWidth - 300) {
+                    e.speed = -e.speed;
+                }
+
+                RectF player = new RectF(
+                    playerX + 5, playerY + 5,
+                    playerX + playerW - 5,
+                    playerY + playerH - 3
+                );
+
+                RectF enemy = new RectF(
+                    e.x, e.y, e.x + e.w, e.y + e.h
+                );
+
+                if (RectF.intersects(player, enemy)) {
+
+                    // Jump on enemy
+                    if (velocityY > 0 &&
+                        playerY + playerH - e.y < 22) {
+                        e.alive = false;
+                        velocityY = -8;
+                        score += 50;
+                    } else {
+                        loseLife();
+                        return;
+                    }
+                }
+            }
+        }
+
+        void loseLife() {
+            lives--;
+
+            if (lives <= 0) {
+                gameOver = true;
+            } else {
+                playerX = Math.max(100, cameraX + 100);
+                playerY = 250;
+                velocityY = 0;
+            }
+        }
+
+        void nextLevel() {
+            level++;
+            lives = Math.min(3, lives + 1);
+            loadLevel();
+        }
+
         @Override
-        public boolean onTouchEvent(MotionEvent e) {
-            if ((gameOver || won) &&
-                e.getAction() == MotionEvent.ACTION_UP) {
-                level = 1;
-                score = 0;
-                lives = 3;
-                buildLevel();
-                invalidate();
+        public boolean onTouchEvent(MotionEvent event) {
+            float x = event.getX() * 800f / getWidth();
+            float y = event.getY() * 450f / getHeight();
+
+            if (event.getAction() == MotionEvent.ACTION_DOWN ||
+                event.getAction() == MotionEvent.ACTION_MOVE) {
+
+                if (gameOver || finished) return true;
+
+                left = x >= 75 && x <= 165 &&
+                       y >= 350;
+
+                right = x >= 175 && x <= 265 &&
+                        y >= 350;
+
+                crawling = x >= 550 && x <= 645 &&
+                           y >= 350;
+
+                if (x >= 660 && y >= 340 &&
+                    onGround && !jump) {
+                    velocityY = -11;
+                    onGround = false;
+                    jump = true;
+                }
+
                 return true;
             }
+
+            if (event.getAction() == MotionEvent.ACTION_UP ||
+                event.getAction() == MotionEvent.ACTION_CANCEL) {
+
+                left = false;
+                right = false;
+                crawling = false;
+                jump = false;
+
+                if (gameOver) {
+                    gameOver = false;
+                    score = 0;
+                    lives = 3;
+                    level = 1;
+                    loadLevel();
+                } else if (finished) {
+                    nextLevel();
+                }
+
+                return true;
+            }
+
             return true;
         }
     }
