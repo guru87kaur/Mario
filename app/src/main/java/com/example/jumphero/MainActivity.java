@@ -52,7 +52,7 @@ public class MainActivity extends Activity {
 
         float screenW, screenH, groundY;
         float heroX = 100, heroY;
-        float heroW = 55, heroH = 75;
+        float heroW = 55, heroH = 78;
 
         float velocityY = 0;
         float speed = 6.5f;
@@ -67,16 +67,17 @@ public class MainActivity extends Activity {
         boolean jump = false;
         boolean grounded = false;
 
+        boolean gameOver = false;
+        boolean finished = false;
+        boolean flagClimbing = false;
+
+        int flagClimbFrames = 0;
         int level = 1;
         int score = 0;
         int lives = 3;
 
-        boolean gameOver = false;
-        boolean finished = false;
-
         boolean musicEnabled = true;
         volatile boolean musicRunning = false;
-
         Thread musicThread;
 
         ArrayList<Pipe> pipes = new ArrayList<>();
@@ -93,6 +94,7 @@ public class MainActivity extends Activity {
 
         class Pipe {
             float x, y, w, h;
+
             Pipe(float x, float y, float h) {
                 this.x = x;
                 this.y = y;
@@ -103,6 +105,7 @@ public class MainActivity extends Activity {
 
         class Spring {
             float x, y;
+
             Spring(float x, float y) {
                 this.x = x;
                 this.y = y;
@@ -112,6 +115,7 @@ public class MainActivity extends Activity {
         class Coin {
             float x, y;
             boolean taken = false;
+
             Coin(float x, float y) {
                 this.x = x;
                 this.y = y;
@@ -120,6 +124,7 @@ public class MainActivity extends Activity {
 
         class Platform {
             float x, y, w, h;
+
             Platform(float x, float y, float w, float h) {
                 this.x = x;
                 this.y = y;
@@ -142,17 +147,22 @@ public class MainActivity extends Activity {
         }
 
         void createLevel() {
+
             pipes.clear();
             springs.clear();
             coins.clear();
             platforms.clear();
             enemies.clear();
 
+            flagClimbing = false;
+            flagClimbFrames = 0;
+
             levelEnd = 4500 + level * 350;
 
             for (int i = 0; i < 10 + level; i++) {
                 float x = 450 + i * 350;
-                coins.add(new Coin(x, groundY - 140 - (i % 3) * 25));
+                coins.add(new Coin(
+                    x, groundY - 140 - (i % 3) * 25));
             }
 
             for (int i = 0; i < 5 + level; i++) {
@@ -162,17 +172,20 @@ public class MainActivity extends Activity {
             }
 
             for (int i = 0; i < 4 + level / 2; i++) {
-                springs.add(new Spring(1200 + i * 1100, groundY - 22));
+                springs.add(new Spring(
+                    1200 + i * 1100, groundY - 22));
             }
 
             for (int i = 0; i < 7 + level; i++) {
                 float x = 600 + i * 550;
                 platforms.add(new Platform(
-                    x, groundY - 150 - (i % 3) * 35, 130, 22));
+                    x, groundY - 150 - (i % 3) * 35,
+                    130, 22));
             }
 
             for (int i = 0; i < 4 + level; i++) {
-                enemies.add(new Enemy(1100 + i * 800, groundY - 38));
+                enemies.add(new Enemy(
+                    1100 + i * 800, groundY - 38));
             }
 
             heroX = 100;
@@ -180,15 +193,20 @@ public class MainActivity extends Activity {
             velocityY = 0;
             cameraX = 0;
             grounded = true;
-            finished = false;
+
+            left = false;
+            right = false;
+            jump = false;
         }
 
         @Override
-        protected void onSizeChanged(int w, int h, int oldw, int oldh) {
+        protected void onSizeChanged(
+                int w, int h, int oldw, int oldh) {
+
             screenW = w;
             screenH = h;
             groundY = h * 0.78f;
-            heroY = groundY - heroH;
+
             createLevel();
         }
 
@@ -199,6 +217,7 @@ public class MainActivity extends Activity {
             if (screenW == 0 || screenH == 0) return;
 
             updateGame();
+
             drawBackground(c);
 
             c.save();
@@ -218,19 +237,49 @@ public class MainActivity extends Activity {
             drawControls(c);
             drawScore(c);
 
-            if (gameOver) drawMessage(c, "GAME OVER - TAP TO RESTART");
-            if (finished) drawMessage(c, "YOU WIN!");
+            if (gameOver) {
+                drawMessage(c, "GAME OVER - TAP TO RESTART");
+            }
+
+            if (finished) {
+                drawMessage(c, "YOU ARE THE CHAMPION!");
+            }
 
             postInvalidateDelayed(16);
         }
 
         void updateGame() {
+
             if (gameOver || finished) return;
+
+            // Flag climbing animation
+            if (flagClimbing) {
+
+                heroX = levelEnd - heroW + 5;
+                heroY -= 2.5f;
+
+                flagClimbFrames++;
+
+                if (flagClimbFrames > 65) {
+
+                    flagClimbing = false;
+
+                    if (level < 10) {
+                        level++;
+                        createLevel();
+                    } else {
+                        finished = true;
+                    }
+                }
+
+                return;
+            }
 
             float oldX = heroX;
             float oldBottom = heroY + heroH;
 
             float dx = 0;
+
             if (left) dx -= speed;
             if (right) dx += speed;
 
@@ -240,31 +289,40 @@ public class MainActivity extends Activity {
             if (heroX > levelEnd) heroX = levelEnd;
 
             velocityY += gravity;
-            if (velocityY > 20) velocityY = 20;
-            heroY += velocityY;
 
+            if (velocityY > 20) velocityY = 20;
+
+            heroY += velocityY;
             grounded = false;
 
+            // Ground collision
             if (heroY + heroH >= groundY) {
                 heroY = groundY - heroH;
                 velocityY = 0;
                 grounded = true;
             }
 
+            // Platform collision
             for (Platform platform : platforms) {
+
                 boolean horizontal =
                     heroX + heroW > platform.x &&
                     heroX < platform.x + platform.w;
 
-                if (horizontal && oldBottom <= platform.y &&
-                    heroY + heroH >= platform.y && velocityY >= 0) {
+                if (horizontal &&
+                    oldBottom <= platform.y &&
+                    heroY + heroH >= platform.y &&
+                    velocityY >= 0) {
+
                     heroY = platform.y - heroH;
                     velocityY = 0;
                     grounded = true;
                 }
             }
 
+            // Pipe collision
             for (Pipe pipe : pipes) {
+
                 boolean horizontal =
                     heroX + heroW > pipe.x &&
                     heroX < pipe.x + pipe.w;
@@ -274,19 +332,28 @@ public class MainActivity extends Activity {
                     heroY < groundY;
 
                 if (horizontal && vertical) {
-                    if (oldBottom <= pipe.y + 8 && velocityY >= 0) {
+
+                    if (oldBottom <= pipe.y + 8 &&
+                        velocityY >= 0) {
+
                         heroY = pipe.y - heroH;
                         velocityY = 0;
                         grounded = true;
+
                     } else if (oldX + heroW <= pipe.x) {
+
                         heroX = pipe.x - heroW;
+
                     } else if (oldX >= pipe.x + pipe.w) {
+
                         heroX = pipe.x + pipe.w;
                     }
                 }
             }
 
+            // Spring collision
             for (Spring s : springs) {
+
                 boolean horizontal =
                     heroX + heroW > s.x &&
                     heroX < s.x + 55;
@@ -297,6 +364,7 @@ public class MainActivity extends Activity {
                     velocityY >= 0;
 
                 if (horizontal && landing) {
+
                     heroY = s.y - heroH;
                     velocityY = -jumpPower * 1.5f;
                     grounded = false;
@@ -304,24 +372,30 @@ public class MainActivity extends Activity {
                 }
             }
 
+            // Coin collection
             for (Coin coin : coins) {
+
                 if (!coin.taken &&
                     heroX + heroW > coin.x - 18 &&
                     heroX < coin.x + 18 &&
                     heroY + heroH > coin.y - 18 &&
                     heroY < coin.y + 18) {
+
                     coin.taken = true;
                     score += 10;
                 }
             }
 
+            // Enemy movement and collision
             for (Enemy enemy : enemies) {
+
                 if (!enemy.alive) continue;
 
                 enemy.x += enemy.speed;
 
                 if (enemy.x > enemy.startX + enemy.range ||
                     enemy.x < enemy.startX - enemy.range) {
+
                     enemy.speed *= -1;
                 }
 
@@ -332,12 +406,18 @@ public class MainActivity extends Activity {
                     heroY < enemy.y + 40;
 
                 if (hit) {
-                    if (velocityY > 2 && oldBottom <= enemy.y + 15) {
+
+                    if (velocityY > 2 &&
+                        oldBottom <= enemy.y + 15) {
+
                         enemy.alive = false;
                         velocityY = -jumpPower * 0.65f;
                         score += 20;
+
                     } else {
+
                         lives--;
+
                         heroX = Math.max(0, heroX - 120);
                         heroY = groundY - heroH;
                         velocityY = 0;
@@ -347,55 +427,203 @@ public class MainActivity extends Activity {
                 }
             }
 
-            cameraX = heroX - screenW * 0.35f;
-            if (cameraX < 0) cameraX = 0;
+            // Camera follows character and keeps flag visible
+            float desiredCamera = heroX - screenW * 0.35f;
+            float maxCamera = levelEnd - screenW * 0.72f;
 
-            float maxCamera = levelEnd - screenW;
             if (maxCamera < 0) maxCamera = 0;
-            if (cameraX > maxCamera) cameraX = maxCamera;
 
-            if (heroX >= levelEnd - 100) {
-                if (level < 10) {
-                    level++;
-                    createLevel();
+            cameraX = Math.max(0,
+                Math.min(desiredCamera, maxCamera));
+
+            // Start flag climbing
+            if (heroX >= levelEnd - 120) {
+
+                flagClimbing = true;
+                flagClimbFrames = 0;
+
+                left = false;
+                right = false;
+                jump = false;
+
+                velocityY = 0;
+                heroX = levelEnd - heroW + 5;
+            }
+        }
+
+        // Different environment for each level
+        void drawBackground(Canvas c) {
+
+            int sky = Color.rgb(100, 190, 255);
+
+            switch (level) {
+                case 2:
+                    sky = Color.rgb(255, 190, 100);
+                    break;
+                case 3:
+                    sky = Color.rgb(160, 210, 255);
+                    break;
+                case 4:
+                    sky = Color.rgb(70, 170, 100);
+                    break;
+                case 5:
+                    sky = Color.rgb(30, 120, 190);
+                    break;
+                case 6:
+                    sky = Color.rgb(100, 35, 35);
+                    break;
+                case 7:
+                    sky = Color.rgb(20, 25, 75);
+                    break;
+                case 8:
+                    sky = Color.rgb(255, 150, 190);
+                    break;
+                case 9:
+                    sky = Color.rgb(100, 170, 240);
+                    break;
+                case 10:
+                    sky = Color.rgb(120, 80, 160);
+                    break;
+            }
+
+            c.drawColor(sky);
+
+            p.setColor(level == 7 ? Color.WHITE : Color.YELLOW);
+            c.drawCircle(
+                screenW * 0.82f, screenH * 0.17f, 35, p);
+
+            // Scenery
+            for (int i = 0; i < 12; i++) {
+
+                float x = i * 180 - (cameraX * 0.25f);
+                float y = groundY;
+
+                if (level == 1) {
+                    p.setColor(Color.rgb(40, 150, 70));
+                    c.drawCircle(x, y - 35, 65, p);
+
+                } else if (level == 2) {
+                    p.setColor(Color.rgb(220, 160, 70));
+                    c.drawCircle(x, y - 30, 85, p);
+
+                    p.setColor(Color.GREEN);
+                    c.drawRect(x + 60, y - 95, x + 72, y, p);
+                    c.drawCircle(x + 65, y - 100, 22, p);
+
+                } else if (level == 3) {
+                    p.setColor(Color.WHITE);
+                    c.drawCircle(x, y - 50, 90, p);
+
+                    p.setColor(Color.rgb(150, 200, 240));
+                    c.drawCircle(x + 45, y - 35, 60, p);
+
+                } else if (level == 4) {
+                    p.setColor(Color.rgb(20, 100, 35));
+                    c.drawRect(x, y - 140, x + 22, y, p);
+                    c.drawCircle(x + 10, y - 150, 65, p);
+
+                } else if (level == 5) {
+                    p.setColor(Color.rgb(20, 80, 150));
+                    c.drawCircle(x, y - 30, 75, p);
+
+                    p.setColor(Color.CYAN);
+                    c.drawCircle(x + 35, y - 70, 12, p);
+
+                } else if (level == 6) {
+                    p.setColor(Color.rgb(70, 20, 20));
+                    c.drawCircle(x, y - 40, 100, p);
+
+                    p.setColor(Color.RED);
+                    c.drawCircle(x + 30, y - 50, 20, p);
+
+                } else if (level == 7) {
+                    p.setColor(Color.WHITE);
+                    c.drawCircle(x, 100 + (i % 3) * 45, 3, p);
+
+                } else if (level == 8) {
+                    p.setColor(Color.MAGENTA);
+                    c.drawCircle(x, y - 65, 30, p);
+
+                    p.setColor(Color.YELLOW);
+                    c.drawCircle(x + 45, y - 80, 20, p);
+
+                } else if (level == 9) {
+                    p.setColor(Color.WHITE);
+                    c.drawCircle(x, y - 80, 55, p);
+
                 } else {
-                    finished = true;
+                    p.setColor(Color.rgb(100, 60, 130));
+                    c.drawRect(x, y - 180, x + 100, y, p);
+
+                    p.setColor(Color.YELLOW);
+                    c.drawRect(x + 35, y - 250, x + 65, y - 180, p);
                 }
             }
         }
 
-        void drawBackground(Canvas c) {
-            c.drawColor(Color.rgb(100, 190, 255));
-
-            p.setColor(Color.WHITE);
-            c.drawCircle(screenW * 0.8f, screenH * 0.17f, 38, p);
-            c.drawCircle(screenW * 0.2f, screenH * 0.2f, 25, p);
-            c.drawCircle(screenW * 0.24f, screenH * 0.2f, 32, p);
-            c.drawCircle(screenW * 0.28f, screenH * 0.2f, 23, p);
-        }
-
         void drawGround(Canvas c) {
-            p.setColor(Color.rgb(120, 75, 35));
-            c.drawRect(0, groundY, levelEnd + 500, screenH, p);
 
-            p.setColor(Color.rgb(30, 170, 50));
-            c.drawRect(0, groundY, levelEnd + 500, groundY + 15, p);
+            int groundColor = Color.rgb(120, 75, 35);
+            int grassColor = Color.rgb(30, 170, 50);
+
+            if (level == 2) {
+                groundColor = Color.rgb(200, 145, 65);
+                grassColor = Color.rgb(210, 170, 80);
+            } else if (level == 3) {
+                groundColor = Color.LTGRAY;
+                grassColor = Color.WHITE;
+            } else if (level == 4) {
+                groundColor = Color.rgb(100, 70, 30);
+                grassColor = Color.rgb(20, 150, 50);
+            } else if (level == 5) {
+                groundColor = Color.rgb(30, 90, 160);
+                grassColor = Color.CYAN;
+            } else if (level == 6) {
+                groundColor = Color.DKGRAY;
+                grassColor = Color.RED;
+            } else if (level == 7) {
+                groundColor = Color.rgb(35, 35, 70);
+                grassColor = Color.WHITE;
+            } else if (level == 8) {
+                groundColor = Color.MAGENTA;
+                grassColor = Color.YELLOW;
+            } else if (level == 9) {
+                groundColor = Color.rgb(160, 180, 220);
+                grassColor = Color.WHITE;
+            } else if (level == 10) {
+                groundColor = Color.rgb(70, 40, 100);
+                grassColor = Color.rgb(240, 180, 40);
+            }
+
+            p.setColor(groundColor);
+            c.drawRect(0, groundY,
+                levelEnd + 500, screenH, p);
+
+            p.setColor(grassColor);
+            c.drawRect(0, groundY,
+                levelEnd + 500, groundY + 15, p);
         }
 
         void drawPlatforms(Canvas c) {
+
             for (Platform platform : platforms) {
+
                 p.setColor(Color.rgb(160, 90, 35));
                 c.drawRect(platform.x, platform.y,
-                    platform.x + platform.w, platform.y + platform.h, p);
+                    platform.x + platform.w,
+                    platform.y + platform.h, p);
 
                 p.setColor(Color.YELLOW);
                 c.drawRect(platform.x, platform.y,
-                    platform.x + platform.w, platform.y + 6, p);
+                    platform.x + platform.w,
+                    platform.y + 6, p);
             }
         }
 
         void drawPipes(Canvas c) {
+
             for (Pipe pipe : pipes) {
+
                 p.setColor(Color.rgb(0, 130, 30));
                 c.drawRect(pipe.x, pipe.y + 15,
                     pipe.x + pipe.w, groundY, p);
@@ -411,21 +639,29 @@ public class MainActivity extends Activity {
         }
 
         void drawSprings(Canvas c) {
+
             for (Spring s : springs) {
+
                 p.setColor(Color.RED);
-                c.drawRect(s.x, s.y + 12, s.x + 55, s.y + 22, p);
+                c.drawRect(s.x, s.y + 12,
+                    s.x + 55, s.y + 22, p);
 
                 p.setColor(Color.YELLOW);
-                c.drawRect(s.x + 5, s.y + 5, s.x + 50, s.y + 13, p);
+                c.drawRect(s.x + 5, s.y + 5,
+                    s.x + 50, s.y + 13, p);
 
                 p.setColor(Color.WHITE);
-                c.drawRect(s.x + 10, s.y, s.x + 45, s.y + 6, p);
+                c.drawRect(s.x + 10, s.y,
+                    s.x + 45, s.y + 6, p);
             }
         }
 
         void drawCoins(Canvas c) {
+
             for (Coin coin : coins) {
+
                 if (!coin.taken) {
+
                     p.setColor(Color.YELLOW);
                     c.drawCircle(coin.x, coin.y, 15, p);
 
@@ -436,7 +672,9 @@ public class MainActivity extends Activity {
         }
 
         void drawEnemies(Canvas c) {
+
             for (Enemy enemy : enemies) {
+
                 if (!enemy.alive) continue;
 
                 p.setColor(Color.rgb(130, 50, 30));
@@ -453,40 +691,124 @@ public class MainActivity extends Activity {
             }
         }
 
+        // Flagpole and flag at the end of every level
         void drawFinish(Canvas c) {
+
             p.setColor(Color.DKGRAY);
-            c.drawRect(levelEnd, groundY - 200,
-                levelEnd + 8, groundY, p);
+            p.setStrokeWidth(9);
+
+            c.drawLine(levelEnd, groundY - 230,
+                levelEnd, groundY, p);
+
+            p.setColor(Color.YELLOW);
+            c.drawCircle(levelEnd, groundY - 230, 9, p);
+
+            float flagY = groundY - 225;
+
+            if (flagClimbing) {
+                flagY = Math.max(
+                    groundY - 225,
+                    heroY + 25);
+            }
 
             p.setColor(Color.RED);
-            c.drawRect(levelEnd + 8, groundY - 200,
-                levelEnd + 73, groundY - 165, p);
+            c.drawRect(levelEnd + 5, flagY,
+                levelEnd + 95, flagY + 45, p);
+
+            p.setColor(Color.YELLOW);
+            c.drawCircle(levelEnd + 48,
+                flagY + 22, 12, p);
         }
 
+        // Doraemon-inspired cartoon character
         void drawHero(Canvas c) {
+
+            // Blue head
+            p.setColor(Color.rgb(0, 150, 230));
+            c.drawCircle(heroX + 28, heroY + 23, 29, p);
+
+            // White face
+            p.setColor(Color.WHITE);
+            c.drawOval(heroX + 5, heroY + 18,
+                heroX + 51, heroY + 49, p);
+
+            // Eyes
+            p.setColor(Color.WHITE);
+            c.drawOval(heroX + 15, heroY + 3,
+                heroX + 27, heroY + 25, p);
+
+            c.drawOval(heroX + 28, heroY + 3,
+                heroX + 40, heroY + 25, p);
+
+            // Pupils
+            p.setColor(Color.BLACK);
+            c.drawCircle(heroX + 23, heroY + 17, 3, p);
+            c.drawCircle(heroX + 33, heroY + 17, 3, p);
+
+            // Red nose
             p.setColor(Color.RED);
-            c.drawRect(heroX + 5, heroY,
-                heroX + 50, heroY + 25, p);
+            c.drawCircle(heroX + 28, heroY + 27, 5, p);
 
-            p.setColor(Color.rgb(255, 190, 130));
-            c.drawRect(heroX + 10, heroY + 22,
-                heroX + 47, heroY + 48, p);
+            // Nose line and smile
+            p.setColor(Color.BLACK);
+            p.setStrokeWidth(2);
 
-            p.setColor(Color.BLUE);
+            c.drawLine(heroX + 28, heroY + 32,
+                heroX + 28, heroY + 40, p);
+
+            c.drawArc(heroX + 18, heroY + 31,
+                heroX + 39, heroY + 44,
+                10, 160, false, p);
+
+            // Whiskers
+            p.setStrokeWidth(1.8f);
+
+            c.drawLine(heroX + 4, heroY + 29,
+                heroX + 19, heroY + 32, p);
+
+            c.drawLine(heroX + 4, heroY + 37,
+                heroX + 19, heroY + 37, p);
+
+            c.drawLine(heroX + 37, heroY + 32,
+                heroX + 52, heroY + 29, p);
+
+            c.drawLine(heroX + 37, heroY + 37,
+                heroX + 52, heroY + 37, p);
+
+            // Blue body
+            p.setColor(Color.rgb(0, 150, 230));
+            c.drawOval(heroX + 3, heroY + 45,
+                heroX + 53, heroY + 76, p);
+
+            // White belly
+            p.setColor(Color.WHITE);
+            c.drawOval(heroX + 13, heroY + 51,
+                heroX + 43, heroY + 73, p);
+
+            // Red collar
+            p.setColor(Color.RED);
             c.drawRect(heroX + 5, heroY + 48,
-                heroX + 50, heroY + 70, p);
+                heroX + 51, heroY + 54, p);
+
+            // Golden bell
+            p.setColor(Color.YELLOW);
+            c.drawCircle(heroX + 28, heroY + 55, 6, p);
 
             p.setColor(Color.BLACK);
-            c.drawRect(heroX + 5, heroY + 68,
-                heroX + 25, heroY + 75, p);
-            c.drawRect(heroX + 32, heroY + 68,
-                heroX + 52, heroY + 75, p);
+            c.drawCircle(heroX + 28, heroY + 56, 2, p);
 
-            p.setColor(Color.BLACK);
-            c.drawCircle(heroX + 35, heroY + 32, 3, p);
+            // Feet
+            p.setColor(Color.WHITE);
+
+            c.drawOval(heroX + 1, heroY + 69,
+                heroX + 27, heroY + 78, p);
+
+            c.drawOval(heroX + 30, heroY + 69,
+                heroX + 55, heroY + 78, p);
         }
 
         void drawControls(Canvas c) {
+
             float y = screenH - 90;
 
             drawButton(c, 85, y, 62,
@@ -505,6 +827,7 @@ public class MainActivity extends Activity {
 
         void drawButton(Canvas c, float x, float y,
                         float radius, int color, String label) {
+
             p.setColor(Color.argb(150, 0, 0, 0));
             c.drawCircle(x + 3, y + 4, radius + 3, p);
 
@@ -515,11 +838,14 @@ public class MainActivity extends Activity {
             p.setTextAlign(Paint.Align.CENTER);
             p.setTextSize(label.equals("JUMP") ? 19 : 38);
             p.setFakeBoldText(true);
+
             c.drawText(label, x, y + 12, p);
+
             p.setFakeBoldText(false);
         }
 
         void drawScore(Canvas c) {
+
             p.setColor(Color.BLACK);
             p.setTextSize(25);
             p.setTextAlign(Paint.Align.LEFT);
@@ -530,21 +856,27 @@ public class MainActivity extends Activity {
         }
 
         void drawMessage(Canvas c, String message) {
+
             p.setColor(Color.argb(190, 0, 0, 0));
+
             c.drawRoundRect(new RectF(
-                screenW / 2 - 220, screenH / 2 - 55,
-                screenW / 2 + 220, screenH / 2 + 55),
+                screenW / 2 - 220,
+                screenH / 2 - 55,
+                screenW / 2 + 220,
+                screenH / 2 + 55),
                 20, 20, p);
 
             p.setColor(Color.WHITE);
             p.setTextSize(25);
             p.setTextAlign(Paint.Align.CENTER);
-            c.drawText(message, screenW / 2,
-                screenH / 2 + 8, p);
+
+            c.drawText(message,
+                screenW / 2, screenH / 2 + 8, p);
         }
 
         @Override
         public boolean onTouchEvent(MotionEvent event) {
+
             int action = event.getActionMasked();
 
             if (action == MotionEvent.ACTION_DOWN ||
@@ -557,21 +889,28 @@ public class MainActivity extends Activity {
 
                     musicEnabled = !musicEnabled;
 
-                    if (musicEnabled) startMusicIfEnabled();
-                    else stopMusic();
+                    if (musicEnabled) {
+                        startMusicIfEnabled();
+                    } else {
+                        stopMusic();
+                    }
 
                     invalidate();
                     return true;
                 }
 
                 if (gameOver || finished) {
+
                     level = 1;
                     score = 0;
                     lives = 3;
+
                     gameOver = false;
                     finished = false;
+
                     createLevel();
                     invalidate();
+
                     return true;
                 }
             }
@@ -582,25 +921,35 @@ public class MainActivity extends Activity {
                 action == MotionEvent.ACTION_CANCEL;
 
             updateTouchControls(event, released);
+
             return true;
         }
 
-        void updateTouchControls(MotionEvent event, boolean skipReleased) {
+        void updateTouchControls(
+                MotionEvent event, boolean skipReleased) {
+
             boolean newLeft = false;
             boolean newRight = false;
             boolean newJump = false;
 
             for (int i = 0; i < event.getPointerCount(); i++) {
-                if (skipReleased && i == event.getActionIndex()) continue;
+
+                if (skipReleased &&
+                    i == event.getActionIndex()) {
+                    continue;
+                }
 
                 float x = event.getX(i);
                 float y = event.getY(i);
 
                 if (y > screenH - 180) {
+
                     if (x < 160) {
                         newLeft = true;
+
                     } else if (x < 320) {
                         newRight = true;
+
                     } else if (x > screenW - 190) {
                         newJump = true;
                     }
@@ -618,12 +967,15 @@ public class MainActivity extends Activity {
         }
 
         void startMusicIfEnabled() {
+
             if (!musicEnabled || musicRunning) return;
 
             musicRunning = true;
 
             musicThread = new Thread(() -> {
+
                 int sampleRate = 22050;
+
                 int bufferSize = AudioTrack.getMinBufferSize(
                     sampleRate,
                     AudioFormat.CHANNEL_OUT_MONO,
@@ -634,6 +986,7 @@ public class MainActivity extends Activity {
                 AudioTrack track = null;
 
                 try {
+
                     track = new AudioTrack(
                         AudioManager.STREAM_MUSIC,
                         sampleRate,
@@ -645,6 +998,7 @@ public class MainActivity extends Activity {
                     track.play();
 
                     short[] buffer = new short[1024];
+
                     double phase = 0;
                     int note = 0;
 
@@ -655,11 +1009,16 @@ public class MainActivity extends Activity {
                     };
 
                     while (musicRunning) {
+
                         double frequency = melody[note];
 
                         for (int i = 0; i < buffer.length; i++) {
-                            buffer[i] = (short)(Math.sin(phase) * 3500);
-                            phase += 2.0 * Math.PI * frequency / sampleRate;
+
+                            buffer[i] = (short)(
+                                Math.sin(phase) * 3500);
+
+                            phase += 2.0 * Math.PI *
+                                frequency / sampleRate;
 
                             if (phase > 2.0 * Math.PI) {
                                 phase -= 2.0 * Math.PI;
@@ -667,11 +1026,14 @@ public class MainActivity extends Activity {
                         }
 
                         track.write(buffer, 0, buffer.length);
+
                         note = (note + 1) % melody.length;
                     }
 
                 } catch (Exception ignored) {
+
                 } finally {
+
                     if (track != null) {
                         try {
                             track.pause();
@@ -681,6 +1043,7 @@ public class MainActivity extends Activity {
                         } catch (Exception ignored) {
                         }
                     }
+
                     musicRunning = false;
                 }
             });
