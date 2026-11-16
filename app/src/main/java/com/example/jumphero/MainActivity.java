@@ -90,7 +90,8 @@ public class MainActivity extends Activity {
             super(c); setFocusable(true);
             setLayerType(View.LAYER_TYPE_SOFTWARE, null);
             tones = new ToneGenerator(AudioManager.STREAM_MUSIC, 55);
-            idle=load("hero_idle"); run=load("hero_run"); crawl=load("hero_crawl");
+            // Original in-game hero is drawn with Canvas; no Doraemon assets are used.
+            idle=null; run=null; crawl=null;
             bomb=load("bomb"); turtle=load("turtle"); bullet=load("bullet");
         }
 
@@ -204,16 +205,60 @@ public class MainActivity extends Activity {
             for(Enemy e:enemies) if(e.alive) drawBitmapOrShape(c,e.type==0?bomb:turtle,e.x,e.y,60,55,e.type==0?Color.BLACK:Color.rgb(30,150,60));
             for(Shot s:shots) drawBitmapOrShape(c,bullet,s.x,s.y,32,22,Color.YELLOW);
             drawFlag(c);
-            Bitmap hero=Math.abs(vx)>5?run:idle;
-            if(hero==null)hero=run; if(hero==null)hero=crawl;
-            if(hero!=null) {
-                RectF dst=new RectF(x,y,x+pw,y+ph);
-                if(facingRight)c.drawBitmap(hero,null,dst,p);
-                else { c.save(); c.scale(-1,1,x+pw/2,0); c.drawBitmap(hero,null,dst,p); c.restore(); }
-            } else {
-                p.setColor(Color.rgb(0,125,220)); c.drawRoundRect(x,y,x+pw,y+ph,20,20,p);
-            }
+            c.save();
+            if(!facingRight) { c.scale(-1,1,x+pw/2f,0); }
+            drawNova(c, now);
+            c.restore();
             if(now<invincibleUntil&&(now/120)%2==0) { p.setColor(0x66FFFFFF); c.drawRoundRect(x,y,x+pw,y+ph,15,15,p); }
+        }
+
+        // Original hero: NOVA, a young sky explorer with teal clothes and an orange scarf.
+        // All parts are vector-drawn, so there are no copyrighted character images or square backgrounds.
+        private void drawNova(Canvas c, long now) {
+            float w=pw, h=ph;
+            float bob=(Math.abs(vx)>5 && onGround)?(float)Math.sin(now/75.0)*2.5f:0;
+            c.save(); c.translate(x,y+bob);
+            // Backpack
+            p.setColor(Color.rgb(235,130,35));
+            c.drawRoundRect(w*0.12f,h*0.40f,w*0.34f,h*0.77f,7,7,p);
+            // Legs and boots
+            p.setColor(Color.rgb(35,55,85));
+            float step=(Math.abs(vx)>5 && onGround)?(float)Math.sin(now/65.0)*5:0;
+            c.drawRoundRect(w*0.34f,h*0.72f,w*0.49f,h*0.91f+step,5,5,p);
+            c.drawRoundRect(w*0.54f,h*0.72f,w*0.69f,h*0.91f-step,5,5,p);
+            p.setColor(Color.rgb(45,35,30));
+            c.drawRoundRect(w*0.27f,h*0.87f+step,w*0.51f,h*0.98f+step,5,5,p);
+            c.drawRoundRect(w*0.52f,h*0.87f-step,w*0.77f,h*0.98f-step,5,5,p);
+            // Teal explorer jacket
+            p.setColor(Color.rgb(20,155,145));
+            c.drawRoundRect(w*0.22f,h*0.37f,w*0.79f,h*0.77f,10,10,p);
+            p.setColor(Color.rgb(245,205,75));
+            c.drawRect(w*0.47f,h*0.42f,w*0.52f,h*0.72f,p);
+            // Arms
+            p.setColor(Color.rgb(20,155,145));
+            c.drawRoundRect(w*0.08f,h*0.43f,w*0.27f,h*0.67f,7,7,p);
+            c.drawRoundRect(w*0.73f,h*0.43f,w*0.91f,h*0.65f,7,7,p);
+            p.setColor(Color.rgb(238,183,137));
+            c.drawCircle(w*0.16f,h*0.68f,w*0.09f,p);
+            c.drawCircle(w*0.85f,h*0.66f,w*0.09f,p);
+            // Orange scarf
+            p.setColor(Color.rgb(245,115,35));
+            Path scarf=new Path(); scarf.moveTo(w*0.38f,h*0.35f); scarf.lineTo(w*0.67f,h*0.38f);
+            scarf.lineTo(w*0.59f,h*0.51f); scarf.lineTo(w*0.40f,h*0.47f); scarf.close(); c.drawPath(scarf,p);
+            Path tail=new Path(); tail.moveTo(w*0.62f,h*0.43f); tail.lineTo(w*0.98f,h*0.52f);
+            tail.lineTo(w*0.72f,h*0.57f); tail.close(); c.drawPath(tail,p);
+            // Face and hair
+            p.setColor(Color.rgb(245,198,155)); c.drawOval(w*0.25f,h*0.05f,w*0.78f,h*0.45f,p);
+            p.setColor(Color.rgb(55,38,30));
+            Path hair=new Path(); hair.moveTo(w*0.24f,h*0.25f); hair.quadTo(w*0.20f,h*0.02f,w*0.48f,h*0.03f);
+            hair.quadTo(w*0.77f,h*0.00f,w*0.81f,h*0.25f); hair.lineTo(w*0.68f,h*0.18f);
+            hair.lineTo(w*0.57f,h*0.25f); hair.lineTo(w*0.47f,h*0.17f); hair.lineTo(w*0.34f,h*0.28f); hair.close(); c.drawPath(hair,p);
+            // Eye, eyebrow and smile
+            p.setColor(Color.rgb(35,35,40)); c.drawCircle(w*0.62f,h*0.29f,w*0.035f,p);
+            p.setStrokeWidth(1.8f); c.drawLine(w*0.57f,h*0.23f,w*0.68f,h*0.22f,p);
+            p.setColor(Color.rgb(160,65,55)); p.setStyle(Paint.Style.STROKE); p.setStrokeWidth(1.5f);
+            c.drawArc(w*0.52f,h*0.30f,w*0.69f,h*0.39f,15,65,false,p); p.setStyle(Paint.Style.FILL);
+            c.restore();
         }
 
         private void drawBitmapOrShape(Canvas c,Bitmap b,float bx,float by,float w,float h,int color) {
