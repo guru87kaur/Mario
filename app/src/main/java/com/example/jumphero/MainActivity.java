@@ -3,732 +3,620 @@ package com.example.jumphero;
 
 import android.app.Activity;
 import android.os.Bundle;
-import android.os.Handler;
-import android.view.Gravity;
-import android.view.MotionEvent;
-import android.view.View;
-import android.widget.FrameLayout;
-import android.widget.ImageView;
-import android.widget.TextView;
-import android.graphics.Color;
-import android.graphics.drawable.GradientDrawable;
-
-import java.util.ArrayList;
+import android.content.Context;
+import android.graphics.*;
+import android.view.*;
+import android.graphics.drawable.*;
+import java.util.*;
 
 public class MainActivity extends Activity {
 
-    FrameLayout game;
-    ImageView hero;
-    TextView scoreText;
-
-    Handler handler = new Handler();
-    ArrayList<Sprite> sprites = new ArrayList<>();
-
-    int screenW, screenH;
-    int heroX, heroY;
-    int heroW, heroH;
-    int groundY;
-
-    float velocityY = 0;
-    float gravity = 1.0f;
-
-    boolean jumping = false;
-    boolean left = false;
-    boolean right = false;
-    boolean gameOver = false;
-
-    int score = 0;
-    int frame = 0;
-
-    Runnable gameLoop;
-
-    class Sprite {
-        ImageView image;
-        String type;
-        int x, y, w, h;
-        boolean active = true;
-    }
-
-    int dp(float value) {
-        return (int) (value *
-                getResources().getDisplayMetrics().density);
-    }
-
     @Override
-    public void onCreate(Bundle savedInstanceState) {
+    protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
         getWindow().getDecorView().setSystemUiVisibility(
-                View.SYSTEM_UI_FLAG_FULLSCREEN |
-                View.SYSTEM_UI_FLAG_HIDE_NAVIGATION |
-                View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+            View.SYSTEM_UI_FLAG_FULLSCREEN |
+            View.SYSTEM_UI_FLAG_HIDE_NAVIGATION |
+            View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
         );
 
-        createGame();
+        setContentView(new GameView(this));
     }
 
-    void createGame() {
+    class GameView extends View {
 
-        game = new FrameLayout(this);
+        final int SW = 800, SH = 450;
 
-        GradientDrawable sky = new GradientDrawable(
-                GradientDrawable.Orientation.TOP_BOTTOM,
-                new int[]{
-                        Color.rgb(75, 185, 255),
-                        Color.rgb(180, 230, 255)
+        Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
+        Paint spritePaint = new Paint(Paint.ANTI_ALIAS_FLAG |
+                                      Paint.FILTER_BITMAP_FLAG);
+
+        Bitmap heroIdle, heroRun, heroCrawl;
+        Bitmap bombImage, turtleImage, bulletImage;
+
+        float playerX = 80;
+        float playerY = 310;
+        float playerW = 54;
+        float playerH = 68;
+
+        float vx = 0;
+        float vy = 0;
+
+        float gravity = 0.65f;
+        float jumpPower = -12.5f;
+        float speed = 4.2f;
+
+        boolean left = false;
+        boolean right = false;
+        boolean jumping = false;
+        boolean crawling = false;
+        boolean facingRight = true;
+        boolean onGround = false;
+
+        float cameraX = 0;
+        int score = 0;
+        int lives = 3;
+
+        long lastTime = System.currentTimeMillis();
+
+        ArrayList<RectF> bricks = new ArrayList<>();
+        ArrayList<Enemy> enemies = new ArrayList<>();
+
+        class Enemy {
+            float x, y, vx;
+            int type;
+            boolean alive = true;
+
+            Enemy(float x, float y, int type) {
+                this.x = x;
+                this.y = y;
+                this.type = type;
+                this.vx = type == 1 ? 1.5f : 2f;
+            }
+        }
+
+        GameView(Context context) {
+            super(context);
+
+            setLayerType(View.LAYER_TYPE_SOFTWARE, null);
+
+            loadImages();
+            createLevel();
+        }
+
+        // Load PNG images and remove connected white background.
+        void loadImages() {
+            heroIdle = loadImage(R.drawable.hero_idle);
+            heroRun = loadImage(R.drawable.hero_run);
+            heroCrawl = loadImage(R.drawable.hero_crawl);
+
+            bombImage = loadImage(R.drawable.bomb);
+            turtleImage = loadImage(R.drawable.turtle);
+            bulletImage = loadImage(R.drawable.bullet);
+        }
+
+        Bitmap loadImage(int id) {
+            Bitmap original = BitmapFactory.decodeResource(
+                getResources(), id
+            );
+
+            if (original == null) return null;
+
+            return removeWhiteBackground(original);
+        }
+
+        // Removes only white pixels connected to image edges.
+        Bitmap removeWhiteBackground(Bitmap source) {
+
+            Bitmap result = source.copy(
+                Bitmap.Config.ARGB_8888, true
+            );
+
+            int w = result.getWidth();
+            int h = result.getHeight();
+
+            int[] pixels = new int[w * h];
+
+            result.getPixels(pixels, 0, w, 0, 0, w, h);
+
+            boolean[] visited = new boolean[w * h];
+            ArrayDeque<Integer> queue = new ArrayDeque<>();
+
+            for (int x = 0; x < w; x++) {
+                addPixel(queue, visited, x, w);
+                addPixel(queue, visited, (h - 1) * w + x, w);
+            }
+
+            for (int y = 0; y < h; y++) {
+                addPixel(queue, visited, y * w, w);
+                addPixel(queue, visited, y * w + w - 1, w);
+            }
+
+            while (!queue.isEmpty()) {
+
+                int index = queue.removeFirst();
+
+                int color = pixels[index];
+
+                int r = Color.red(color);
+                int g = Color.green(color);
+                int b = Color.blue(color);
+
+                if (r > 235 && g > 235 && b > 235) {
+
+                    pixels[index] = Color.TRANSPARENT;
+
+                    int x = index % w;
+                    int y = index / w;
+
+                    if (x > 0)
+                        addPixel(queue, visited, index - 1, w);
+
+                    if (x < w - 1)
+                        addPixel(queue, visited, index + 1, w);
+
+                    if (y > 0)
+                        addPixel(queue, visited, index - w, w);
+
+                    if (y < h - 1)
+                        addPixel(queue, visited, index + w, w);
                 }
-        );
+            }
 
-        game.setBackground(sky);
-        setContentView(game);
+            result.setPixels(pixels, 0, w, 0, 0, w, h);
 
-        game.post(() -> {
+            return result;
+        }
 
-            screenW = game.getWidth();
-            screenH = game.getHeight();
+        void addPixel(ArrayDeque<Integer> queue,
+                      boolean[] visited, int index, int width) {
 
-            heroW = dp(65);
-            heroH = dp(90);
+            if (index >= 0 && index < visited.length &&
+                !visited[index]) {
 
-            groundY = screenH - dp(90);
+                visited[index] = true;
+                queue.add(index);
+            }
+        }
 
-            heroX = dp(75);
-            heroY = groundY - heroH;
+        void createLevel() {
 
-            createBackground();
-            createGround();
-            createHero();
-            createBlocks();
-            createEnemies();
-            createControls();
-            createHUD();
+            bricks.clear();
+            enemies.clear();
 
-            startGame();
-        });
-    }
+            // Floating brick blocks
+            for (int i = 0; i < 30; i++) {
+                bricks.add(new RectF(
+                    300 + i * 85,
+                    275,
+                    340 + i * 85,
+                    315
+                ));
+            }
 
-    // LOAD PNG IMAGE
+            bricks.add(new RectF(600, 190, 640, 230));
+            bricks.add(new RectF(640, 190, 680, 230));
+            bricks.add(new RectF(1100, 235, 1140, 275));
+            bricks.add(new RectF(1140, 235, 1180, 275));
 
-    ImageView loadImage(String name, String fallback) {
+            enemies.add(new Enemy(550, 322, 1));
+            enemies.add(new Enemy(900, 322, 2));
+            enemies.add(new Enemy(1400, 322, 1));
+        }
 
-        ImageView image = new ImageView(this);
+        @Override
+        protected void onDraw(Canvas canvas) {
+            super.onDraw(canvas);
 
-        int id = getResources().getIdentifier(
-                name,
-                "drawable",
-                getPackageName()
-        );
+            float scaleX = getWidth() / (float) SW;
+            float scaleY = getHeight() / (float) SH;
 
-        if (id == 0 && fallback != null) {
-            id = getResources().getIdentifier(
-                    fallback,
-                    "drawable",
-                    getPackageName()
+            canvas.save();
+            canvas.scale(scaleX, scaleY);
+
+            updateGame();
+
+            drawBackground(canvas);
+            drawWorld(canvas);
+            drawPlayer(canvas);
+            drawEnemies(canvas);
+            drawControls(canvas);
+            drawScore(canvas);
+
+            canvas.restore();
+
+            postInvalidateDelayed(16);
+        }
+
+        void updateGame() {
+
+            long now = System.currentTimeMillis();
+
+            float dt = Math.min(
+                (now - lastTime) / 16.67f, 2.5f
+            );
+
+            lastTime = now;
+
+            float oldY = playerY;
+
+            vx = 0;
+
+            if (left) {
+                vx = -speed;
+                facingRight = false;
+            }
+
+            if (right) {
+                vx = speed;
+                facingRight = true;
+            }
+
+            playerX += vx * dt;
+
+            if (playerX < 0) playerX = 0;
+
+            float oldBottom = playerY + playerH;
+
+            vy += gravity * dt;
+            playerY += vy * dt;
+
+            onGround = false;
+
+            // Ground collision
+            if (playerY + playerH >= 390) {
+                playerY = 390 - playerH;
+                vy = 0;
+                onGround = true;
+            }
+
+            // Brick collision from below: BREAK BRICK.
+            if (vy < 0) {
+
+                for (int i = bricks.size() - 1; i >= 0; i--) {
+
+                    RectF b = bricks.get(i);
+
+                    boolean horizontal =
+                        playerX + playerW > b.left &&
+                        playerX < b.right;
+
+                    boolean hitBottom =
+                        oldY >= b.bottom &&
+                        playerY <= b.bottom;
+
+                    if (horizontal && hitBottom) {
+
+                        bricks.remove(i);
+
+                        vy = 3f;
+                        score += 10;
+
+                        break;
+                    }
+                }
+            }
+
+            // Land on top of bricks.
+            if (vy >= 0) {
+
+                for (RectF b : bricks) {
+
+                    boolean horizontal =
+                        playerX + playerW > b.left &&
+                        playerX < b.right;
+
+                    boolean landing =
+                        oldBottom <= b.top &&
+                        playerY + playerH >= b.top;
+
+                    if (horizontal && landing) {
+                        playerY = b.top - playerH;
+                        vy = 0;
+                        onGround = true;
+                    }
+                }
+            }
+
+            // Enemy movement and collision
+            for (Enemy e : enemies) {
+
+                if (!e.alive) continue;
+
+                e.x += e.vx * dt;
+
+                if (e.x < 450 || e.x > 1900)
+                    e.vx = -e.vx;
+
+                RectF player = new RectF(
+                    playerX + 7, playerY + 8,
+                    playerX + playerW - 7,
+                    playerY + playerH
+                );
+
+                RectF enemy = new RectF(
+                    e.x, e.y, e.x + 45, e.y + 48
+                );
+
+                if (RectF.intersects(player, enemy)) {
+
+                    if (vy > 1 && oldBottom <= e.y + 12) {
+                        e.alive = false;
+                        vy = -8;
+                        score += 50;
+                    } else {
+                        lives--;
+
+                        playerX = Math.max(80, playerX - 70);
+                        playerY = 310;
+                        vy = 0;
+
+                        if (lives <= 0) {
+                            playerX = 80;
+                            playerY = 310;
+                            lives = 3;
+                            score = 0;
+                            createLevel();
+                        }
+                    }
+                }
+            }
+
+            cameraX = Math.max(
+                0, Math.min(playerX - 220, 1900)
             );
         }
 
-        if (id != 0) {
-            image.setImageResource(id);
-        } else {
-            image.setVisibility(View.INVISIBLE);
+        void drawBackground(Canvas c) {
+
+            p.setShader(new LinearGradient(
+                0, 0, 0, SH,
+                Color.rgb(80, 190, 255),
+                Color.rgb(190, 235, 255),
+                Shader.TileMode.CLAMP
+            ));
+
+            c.drawRect(0, 0, SW, SH, p);
+            p.setShader(null);
+
+            // Clouds
+            p.setColor(Color.WHITE);
+
+            for (int i = 0; i < 12; i++) {
+                float x = (i * 180 - cameraX * 0.3f) % 1000;
+
+                c.drawCircle(x, 75, 22, p);
+                c.drawCircle(x + 25, 65, 28, p);
+                c.drawCircle(x + 50, 78, 20, p);
+            }
         }
 
-        image.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        void drawWorld(Canvas c) {
 
-        return image;
-    }
+            c.save();
+            c.translate(-cameraX, 0);
 
-    ImageView addImage(
-            String name,
-            String fallback,
-            int x, int y,
-            int w, int h) {
+            // Ground
+            p.setColor(Color.rgb(80, 180, 65));
+            c.drawRect(0, 390, 2500, 450, p);
 
-        ImageView image = loadImage(name, fallback);
+            p.setColor(Color.rgb(120, 75, 35));
+            c.drawRect(0, 402, 2500, 450, p);
 
-        FrameLayout.LayoutParams p =
-                new FrameLayout.LayoutParams(w, h);
+            // Bricks
+            for (RectF b : bricks) {
 
-        p.leftMargin = x;
-        p.topMargin = y;
+                p.setColor(Color.rgb(175, 80, 30));
+                c.drawRoundRect(b, 3, 3, p);
 
-        game.addView(image, p);
+                p.setColor(Color.rgb(255, 165, 70));
+                p.setStyle(Paint.Style.STROKE);
+                p.setStrokeWidth(2);
+                c.drawRoundRect(b, 3, 3, p);
+                p.setStyle(Paint.Style.FILL);
 
-        return image;
-    }
-
-    // BACKGROUND
-
-    void createBackground() {
-
-        addImage("cloud", null,
-                dp(40), dp(35), dp(100), dp(55));
-
-        addImage("cloud", null,
-                screenW / 2, dp(70), dp(100), dp(55));
-
-        addImage("tree", null,
-                screenW - dp(140),
-                groundY - dp(125),
-                dp(120), dp(125));
-
-        addImage("tower", null,
-                screenW - dp(250),
-                groundY - dp(200),
-                dp(110), dp(200));
-    }
-
-    void createGround() {
-
-        View ground = new View(this);
-
-        ground.setBackgroundColor(
-                Color.rgb(45, 155, 50)
-        );
-
-        FrameLayout.LayoutParams p =
-                new FrameLayout.LayoutParams(
-                        screenW, dp(90));
-
-        p.leftMargin = 0;
-        p.topMargin = groundY;
-
-        game.addView(ground, p);
-    }
-
-    // HERO
-
-    void createHero() {
-
-        hero = addImage(
-                "hero_idle",
-                null,
-                heroX, heroY,
-                heroW, heroH
-        );
-    }
-
-    void changeHeroImage(String name) {
-
-        int id = getResources().getIdentifier(
-                name,
-                "drawable",
-                getPackageName()
-        );
-
-        if (id != 0) {
-            hero.setImageResource(id);
-        }
-    }
-
-    void animateHero() {
-
-        if (jumping) {
-            changeHeroImage("hero_jump");
-        } else if (left || right) {
-
-            frame++;
-
-            String[] run = {
-                    "hero_run_1",
-                    "hero_run_2",
-                    "hero_run_3"
-            };
-
-            changeHeroImage(run[(frame / 5) % 3]);
-
-        } else {
-            changeHeroImage("hero_idle");
-        }
-    }
-
-    // GAME OBJECTS
-
-    void addObject(
-            String name,
-            String fallback,
-            String type,
-            int x, int y,
-            int w, int h) {
-
-        ImageView image = addImage(
-                name, fallback, x, y, w, h
-        );
-
-        Sprite s = new Sprite();
-
-        s.image = image;
-        s.type = type;
-        s.x = x;
-        s.y = y;
-        s.w = w;
-        s.h = h;
-
-        sprites.add(s);
-    }
-
-    void createBlocks() {
-
-        int blockY = groundY - dp(180);
-        int blockSize = dp(55);
-
-        // Breakable bricks
-
-        addObject(
-                "brick", "question_block",
-                "brick",
-                screenW / 2 - dp(60),
-                blockY,
-                blockSize, blockSize
-        );
-
-        addObject(
-                "brick", "question_block",
-                "brick",
-                screenW / 2,
-                blockY,
-                blockSize, blockSize
-        );
-
-        // Question blocks
-
-        addObject(
-                "question_block", null,
-                "question",
-                screenW / 2 + dp(60),
-                blockY,
-                blockSize, blockSize
-        );
-
-        // Pipes
-
-        addObject(
-                "pipe_small", null,
-                "pipe",
-                screenW - dp(160),
-                groundY - dp(75),
-                dp(75), dp(75)
-        );
-
-        addObject(
-                "pipe_large", null,
-                "pipe",
-                screenW + dp(150),
-                groundY - dp(110),
-                dp(90), dp(110)
-        );
-    }
-
-    void createEnemies() {
-
-        addObject(
-                "turtle", null,
-                "enemy",
-                screenW - dp(300),
-                groundY - dp(60),
-                dp(60), dp(60)
-        );
-
-        addObject(
-                "mushroom", null,
-                "enemy",
-                screenW + dp(300),
-                groundY - dp(60),
-                dp(60), dp(60)
-        );
-
-        addObject(
-                "spiked_enemy", null,
-                "enemy",
-                screenW + dp(600),
-                groundY - dp(60),
-                dp(60), dp(60)
-        );
-
-        addObject(
-                "red_shell", null,
-                "enemy",
-                screenW + dp(900),
-                groundY - dp(60),
-                dp(60), dp(60)
-        );
-    }
-
-    // CONTROLS
-
-    void createControls() {
-
-        addMoveButton("LEFT", dp(15), false);
-        addMoveButton("RIGHT", dp(100), true);
-
-        TextView jumpButton = createButton(
-                "JUMP",
-                Color.rgb(210, 65, 40),
-                dp(90), dp(80)
-        );
-
-        FrameLayout.LayoutParams p =
-                new FrameLayout.LayoutParams(
-                        dp(90), dp(80),
-                        Gravity.BOTTOM | Gravity.RIGHT
+                p.setColor(Color.rgb(110, 45, 20));
+                c.drawLine(
+                    b.left, b.centerY(),
+                    b.right, b.centerY(), p
                 );
+            }
 
-        p.rightMargin = dp(20);
-        p.bottomMargin = dp(15);
+            c.restore();
+        }
 
-        game.addView(jumpButton, p);
+        void drawSprite(Canvas c, Bitmap bitmap,
+                        float x, float y, float w, float h) {
 
-        jumpButton.setOnClickListener(v -> jump());
-    }
+            if (bitmap == null) return;
 
-    TextView createButton(
-            String text,
-            int color,
-            int w, int h) {
+            RectF destination = new RectF(x, y, x + w, y + h);
 
-        TextView button = new TextView(this);
+            c.drawBitmap(bitmap, null, destination, spritePaint);
+        }
 
-        button.setText(text);
-        button.setTextColor(Color.WHITE);
-        button.setTextSize(18);
-        button.setGravity(Gravity.CENTER);
+        void drawPlayer(Canvas c) {
 
-        GradientDrawable bg = new GradientDrawable();
+            c.save();
+            c.translate(-cameraX, 0);
 
-        bg.setColor(color);
-        bg.setCornerRadius(dp(25));
+            Bitmap current;
 
-        button.setBackground(bg);
-
-        return button;
-    }
-
-    void addMoveButton(
-            String label,
-            int x,
-            boolean isRight) {
-
-        TextView button = createButton(
-                label,
-                Color.rgb(35, 65, 120),
-                dp(80), dp(70)
-        );
-
-        FrameLayout.LayoutParams p =
-                new FrameLayout.LayoutParams(
-                        dp(80), dp(70),
-                        Gravity.BOTTOM | Gravity.LEFT
-                );
-
-        p.leftMargin = x;
-        p.bottomMargin = dp(15);
-
-        game.addView(button, p);
-
-        button.setOnTouchListener((v, event) -> {
-
-            boolean pressed =
-                    event.getAction() == MotionEvent.ACTION_DOWN;
-
-            if (isRight) {
-                right = pressed;
+            if (crawling) {
+                current = heroCrawl;
+            } else if (Math.abs(vx) > 0.1f) {
+                current = heroRun;
             } else {
-                left = pressed;
+                current = heroIdle;
+            }
+
+            if (current == null) current = heroIdle;
+
+            if (current != null && !facingRight) {
+
+                c.save();
+                c.scale(-1, 1,
+                    playerX + playerW / 2,
+                    playerY + playerH / 2
+                );
+
+                drawSprite(c, current,
+                    playerX, playerY, playerW, playerH);
+
+                c.restore();
+
+            } else {
+
+                drawSprite(c, current,
+                    playerX, playerY, playerW, playerH);
+            }
+
+            c.restore();
+        }
+
+        void drawEnemies(Canvas c) {
+
+            c.save();
+            c.translate(-cameraX, 0);
+
+            for (Enemy e : enemies) {
+
+                if (!e.alive) continue;
+
+                Bitmap image = e.type == 1 ?
+                    turtleImage : bombImage;
+
+                drawSprite(c, image,
+                    e.x, e.y, 48, 48);
+            }
+
+            c.restore();
+        }
+
+        void drawControls(Canvas c) {
+
+            // Left button
+            drawButton(c, 35, 340, 105, 435, "◀");
+
+            // Right button
+            drawButton(c, 150, 340, 220, 435, "▶");
+
+            // Jump button
+            drawButton(c, 665, 335, 780, 435, "JUMP");
+        }
+
+        void drawButton(Canvas c, float l, float t,
+                        float r, float b, String text) {
+
+            p.setColor(0xAA222222);
+            c.drawRoundRect(l, t, r, b, 18, 18, p);
+
+            p.setColor(Color.WHITE);
+            p.setTextAlign(Paint.Align.CENTER);
+            p.setTextSize(text.equals("JUMP") ? 23 : 42);
+            p.setTypeface(Typeface.DEFAULT_BOLD);
+
+            c.drawText(text, (l + r) / 2,
+                (t + b) / 2 + 12, p);
+        }
+
+        void drawScore(Canvas c) {
+
+            p.setColor(Color.WHITE);
+            p.setTextSize(22);
+            p.setTypeface(Typeface.DEFAULT_BOLD);
+            p.setTextAlign(Paint.Align.LEFT);
+
+            c.drawText("SCORE: " + score, 20, 35, p);
+            c.drawText("LIVES: " + lives, 20, 65, p);
+        }
+
+        @Override
+        public boolean onTouchEvent(android.view.MotionEvent event) {
+
+            float sx = SW / (float) getWidth();
+            float sy = SH / (float) getHeight();
+
+            float x = event.getX() * sx;
+            float y = event.getY() * sy;
+
+            int action = event.getActionMasked();
+            int index = event.getActionIndex();
+            int pointerId = event.getPointerId(index);
+
+            if (action == MotionEvent.ACTION_DOWN ||
+                action == MotionEvent.ACTION_POINTER_DOWN) {
+
+                setControl(pointerId, x, y, true);
+                return true;
+            }
+
+            if (action == MotionEvent.ACTION_MOVE) {
+
+                left = false;
+                right = false;
+                jumping = false;
+
+                for (int i = 0; i < event.getPointerCount(); i++) {
+                    setControl(
+                        event.getPointerId(i),
+                        event.getX(i) * sx,
+                        event.getY(i) * sy,
+                        true
+                    );
+                }
+
+                return true;
+            }
+
+            if (action == MotionEvent.ACTION_UP ||
+                action == MotionEvent.ACTION_POINTER_UP ||
+                action == MotionEvent.ACTION_CANCEL) {
+
+                left = false;
+                right = false;
+                jumping = false;
+
+                for (int i = 0; i < event.getPointerCount(); i++) {
+                    if (i == index) continue;
+
+                    setControl(
+                        event.getPointerId(i),
+                        event.getX(i) * sx,
+                        event.getY(i) * sy,
+                        true
+                    );
+                }
+
+                return true;
             }
 
             return true;
-        });
-    }
-
-    void jump() {
-
-        if (!jumping && !gameOver) {
-
-            jumping = true;
-            velocityY = -dp(19);
-
-            changeHeroImage("hero_jump");
-        }
-    }
-
-    // SCORE
-
-    void createHUD() {
-
-        scoreText = new TextView(this);
-
-        scoreText.setText("SCORE: 0");
-        scoreText.setTextColor(Color.WHITE);
-        scoreText.setTextSize(25);
-        scoreText.setGravity(Gravity.CENTER);
-
-        FrameLayout.LayoutParams p =
-                new FrameLayout.LayoutParams(
-                        dp(200), dp(60),
-                        Gravity.TOP | Gravity.CENTER_HORIZONTAL
-                );
-
-        game.addView(scoreText, p);
-    }
-
-    void updateScore(int points) {
-
-        score += points;
-
-        scoreText.setText("SCORE: " + score);
-    }
-
-    // GAME LOOP
-
-    void startGame() {
-
-        gameLoop = new Runnable() {
-
-            @Override
-            public void run() {
-
-                if (gameOver) return;
-
-                updateGame();
-
-                handler.postDelayed(this, 16);
-            }
-        };
-
-        handler.post(gameLoop);
-    }
-
-    void updateGame() {
-
-        // Save old position for collision detection
-
-        int oldHeroY = heroY;
-
-        // Horizontal movement
-
-        if (right) heroX += dp(5);
-        if (left) heroX -= dp(5);
-
-        heroX = Math.max(
-                0,
-                Math.min(heroX, screenW - heroW)
-        );
-
-        // Gravity
-
-        velocityY += gravity;
-        heroY += (int) velocityY;
-
-        // Check collision with bricks
-
-        checkBrickCollision(oldHeroY);
-
-        // Ground collision
-
-        if (heroY + heroH >= groundY) {
-
-            heroY = groundY - heroH;
-            velocityY = 0;
-            jumping = false;
         }
 
-        // Update hero position
+        void setControl(int id, float x, float y,
+                        boolean pressed) {
 
-        FrameLayout.LayoutParams p =
-                (FrameLayout.LayoutParams)
-                        hero.getLayoutParams();
+            if (!pressed) return;
 
-        p.leftMargin = heroX;
-        p.topMargin = heroY;
-
-        hero.setLayoutParams(p);
-
-        animateHero();
-
-        // Enemy collision
-
-        checkEnemyCollision();
-    }
-
-    // BRICK BREAKING PHYSICS
-
-    void checkBrickCollision(int oldHeroY) {
-
-        if (velocityY >= 0) return;
-
-        for (Sprite s : sprites) {
-
-            if (!s.active) continue;
-
-            if (!s.type.equals("brick") &&
-                !s.type.equals("question")) {
-                continue;
+            if (x >= 35 && x <= 140 && y >= 340) {
+                left = true;
             }
 
-            int blockLeft = s.x;
-            int blockRight = s.x + s.w;
+            if (x >= 150 && x <= 225 && y >= 340) {
+                right = true;
+            }
 
-            int blockTop = s.y;
-            int blockBottom = s.y + s.h;
+            if (x >= 650 && y >= 330) {
+                jumping = true;
 
-            // Horizontal overlap
-
-            boolean horizontal =
-                    heroX + heroW - dp(8) > blockLeft &&
-                    heroX + dp(8) < blockRight;
-
-            // Hero moving upward through block bottom
-
-            boolean hitFromBelow =
-                    oldHeroY >= blockBottom &&
-                    heroY <= blockBottom;
-
-            if (horizontal && hitFromBelow) {
-
-                // Stop upward movement
-
-                heroY = blockBottom;
-                velocityY = 0;
-
-                if (s.type.equals("brick")) {
-
-                    // Break the brick
-
-                    s.active = false;
-                    s.image.setVisibility(View.INVISIBLE);
-
-                    updateScore(50);
-
-                } else {
-
-                    // Question block stays visible
-
-                    updateScore(10);
-
-                    // Small bump animation
-
-                    s.image.animate()
-                            .translationY(-dp(12))
-                            .setDuration(100)
-                            .withEndAction(() ->
-                                    s.image.animate()
-                                            .translationY(0)
-                                            .setDuration(100)
-                                            .start()
-                            )
-                            .start();
+                if (onGround) {
+                    vy = jumpPower;
+                    onGround = false;
                 }
-
-                return;
             }
         }
-    }
-
-    // ENEMY COLLISION
-
-    void checkEnemyCollision() {
-
-        for (Sprite s : sprites) {
-
-            if (!s.active || !s.type.equals("enemy"))
-                continue;
-
-            boolean overlap =
-                    heroX + heroW - dp(10) > s.x &&
-                    heroX + dp(10) < s.x + s.w &&
-                    heroY + heroH - dp(5) > s.y &&
-                    heroY + dp(10) < s.y + s.h;
-
-            if (overlap) {
-
-                // Jumping on enemy defeats it
-
-                if (velocityY > 0 &&
-                    heroY + heroH < s.y + dp(35)) {
-
-                    s.active = false;
-
-                    s.image.setVisibility(View.INVISIBLE);
-
-                    velocityY = -dp(10);
-
-                    updateScore(20);
-
-                } else {
-
-                    showGameOver();
-                }
-
-                return;
-            }
-        }
-    }
-
-    // GAME OVER
-
-    void showGameOver() {
-
-        if (gameOver) return;
-
-        gameOver = true;
-
-        TextView message = new TextView(this);
-
-        message.setText(
-                "GAME OVER\n\nSCORE: " + score +
-                "\n\nTAP TO RESTART"
-        );
-
-        message.setTextColor(Color.WHITE);
-        message.setTextSize(25);
-        message.setGravity(Gravity.CENTER);
-
-        GradientDrawable bg = new GradientDrawable();
-
-        bg.setColor(Color.rgb(30, 30, 30));
-        bg.setCornerRadius(dp(20));
-
-        message.setBackground(bg);
-
-        FrameLayout.LayoutParams p =
-                new FrameLayout.LayoutParams(
-                        dp(280), dp(220),
-                        Gravity.CENTER
-                );
-
-        game.addView(message, p);
-
-        message.setOnClickListener(v -> {
-
-            handler.removeCallbacks(gameLoop);
-            recreate();
-        });
-    }
-
-    @Override
-    protected void onPause() {
-        super.onPause();
-
-        if (gameLoop != null) {
-            handler.removeCallbacks(gameLoop);
-        }
-    }
-
-    @Override
-    protected void onResume() {
-        super.onResume();
-
-        if (gameLoop != null && !gameOver) {
-            handler.removeCallbacks(gameLoop);
-            handler.post(gameLoop);
-        }
-    }
-
-    @Override
-    protected void onDestroy() {
-        super.onDestroy();
-
-        handler.removeCallbacksAndMessages(null);
     }
 }
 
