@@ -131,7 +131,7 @@ public class MainActivity extends Activity {
 
         @Override protected void onSizeChanged(int w,int h,int oldw,int oldh) {
             super.onSizeChanged(w,h,oldw,oldh);
-            sw=w; sh=h; groundTop=sh*0.40f;
+            sw=w; sh=h; groundTop=sh*0.68f;
             pw=Math.max(48,sh*0.09f); ph=Math.max(58,sh*0.115f);
             if(lastGround<0) { lastGround=groundTop; buildLevel(); }
             else {
